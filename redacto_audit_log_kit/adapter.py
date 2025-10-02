@@ -9,6 +9,11 @@
 #TODO: Work on the generate search query function
 #TODO: add proper logging
 #TODO: check the float check for unix epoch timestamp inputs
+
+
+
+#TODO: remove unused files from the codebase ASAP 
+
 import os
 from pprint import pprint
 from typing import Optional
