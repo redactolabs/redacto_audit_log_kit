@@ -1,0 +1,19 @@
+[tool.poetry]
+name = "redacto_audit_log_kit"
+version = "0.1.0"
+description = ""
+authors = ["radacts <radhika@redacto.io>"]
+readme = "README.md"
+# Explicitly include the redacto_audit_log_kit package
+packages = [{include = "redacto_audit_log_kit"}]
+
+[tool.poetry.dependencies]
+python = ">=3.12,<3.13"
+django = ">=4.2,<6.0"
+django-ninja = ">=1.4.3,<2.0.0"
+pydantic = ">=2.11.9,<3.0.0"
+requests = ">=2.32.5,<3.0.0"
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
