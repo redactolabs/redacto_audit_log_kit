@@ -132,12 +132,13 @@ class GrafanaLokiAdapter(AuditAdapter):
         Raises AuditKitConfigurationError, AuditKitConnectionError, AuditKitExternalServiceError, or AuditKitEventProcessingError.
         """
         try:
-            # loki_base_url = os.getenv('GRAFANA_LOKI_URL', 'http://localhost:3100')
-            loki_base_url = os.getenv('GRAFANA_LOKI_URL', 'http://host.docker.internal:3100')
+            # loki_base_url = os.getenv('LOKI_BASE_URL', 'http://localhost:3100')
+            # loki_base_url = os.getenv('LOKI_BASE_URL', 'http://host.docker.internal:3100')
+            loki_base_url = os.getenv('LOKI_BASE_URL')
             push_events_endpoint = loki_base_url + '/loki/api/v1/push'
 
             if not push_events_endpoint:
-                raise AuditKitConfigurationError("GRAFANA_LOKI_URL is not set.")
+                raise AuditKitConfigurationError("LOKI_BASE_URL is not set.")
             headers = {
                 'Content-Type': 'application/json',
             }
@@ -272,14 +273,15 @@ class GrafanaLokiAdapter(AuditAdapter):
         try:
             params = self.generate_search_query(search_query)
 
-            loki_base_url = os.getenv('GRAFANA_LOKI_URL', 'http://host.docker.internal:3100')
+            # loki_base_url = os.getenv('LOKI_BASE_URL', 'http://host.docker.internal:3100')
+            loki_base_url = os.getenv('LOKI_BASE_URL')
             # get_events_endpoint = loki_base_url + f'/loki/api/v1/query_range?query={params["query"]}'
             get_events_endpoint = loki_base_url + f'/loki/api/v1/query_range'
 
             print(f"{get_events_endpoint=} | {params=}")
 
             if not get_events_endpoint:
-                raise AuditKitConfigurationError("GRAFANA_LOKI_URL is not set.")
+                raise AuditKitConfigurationError("LOKI_BASE_URL is not set.")
             headers = {
                 'Accept': 'application/json',
             }
