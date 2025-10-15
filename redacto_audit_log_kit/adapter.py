@@ -59,19 +59,19 @@ class GrafanaLokiAdapter(AuditAdapter):
         "organization_uuid",
         "workspace_uuid",
         "vrm_vendor_id",
-        "service_name",
-        "action",
-        "crud",
-        "actor_name",
-        "actor_uuid",
-        "resource_name",
-        "resource_uuid",
+        "service_name"
         }
 
     pipeline_filter_fields = {
         "source_ip",
         "resource_type",
-        "description"
+        "description",
+        "action",
+        "crud",
+        "actor_name",
+        "actor_uuid",
+        "resource_name",
+        "resource_uuid"
     }
 
     non_logql_query_params = {
