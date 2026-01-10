@@ -1,5 +1,3 @@
-# NOTE: These test cases fail, due to the difference in expected order of labels in the generated LogQL query and the actual order. pls look at the output of the test cases to see the difference.
-
 import unittest
 import datetime
 import time
@@ -13,12 +11,13 @@ class TestGenerateSearchQuery(unittest.TestCase):
 
     def test_basic_query_params(self):
         """Test generating query parameters with basic fields"""
-        search_query = SearchQuery(actor_id="12345", action="login", limit=50)
+        search_query = SearchQuery(actor_uuid="12345", action="login", limit=50)
         params = self.adapter.generate_search_query(search_query)
-        # LogQL label order: organization_uuid, vrm_vendor_id, service_name, action, actor_name, target_name, crud
-        # Only 'action' is a label, so expect: '{action="login"}'
+        # pipeline_filter_fields are sets (unordered)
         self.assertTrue("query" in params)
-        self.assertEqual(params["query"], '{action="login"}')
+        self.assertTrue(params["query"].startswith("{}"))
+        self.assertIn('action="login"', params["query"])
+        self.assertIn('actor_uuid="12345"', params["query"])
         self.assertEqual(params["limit"], 50)
 
     def test_time_params_nanoseconds(self):
@@ -26,7 +25,9 @@ class TestGenerateSearchQuery(unittest.TestCase):
         now_ns = int(time.time_ns())
         one_hour_ago_ns = now_ns - (3600 * 1_000_000_000)
 
-        search_query = SearchQuery(actor_id="12345", start=one_hour_ago_ns, end=now_ns)
+        search_query = SearchQuery(
+            actor_uuid="12345", start=one_hour_ago_ns, end=now_ns
+        )
         params = self.adapter.generate_search_query(search_query)
 
         self.assertEqual(params["start"], one_hour_ago_ns)
@@ -41,7 +42,7 @@ class TestGenerateSearchQuery(unittest.TestCase):
         start_ns = int(one_hour_ago.timestamp() * 1_000_000_000)
         end_ns = int(now.timestamp() * 1_000_000_000)
 
-        search_query = SearchQuery(actor_id="12345", start=start_ns, end=end_ns)
+        search_query = SearchQuery(actor_uuid="12345", start=start_ns, end=end_ns)
         params = self.adapter.generate_search_query(search_query)
 
         # Should be converted to nanoseconds by the function
@@ -59,7 +60,7 @@ class TestGenerateSearchQuery(unittest.TestCase):
         start_ns = int(one_hour_ago.timestamp() * 1_000_000_000)
         end_ns = int(now.timestamp() * 1_000_000_000)
 
-        search_query = SearchQuery(actor_id="12345", start=start_ns, end=end_ns)
+        search_query = SearchQuery(actor_uuid="12345", start=start_ns, end=end_ns)
         params = self.adapter.generate_search_query(search_query)
 
         # Check that values are passed through correctly
@@ -68,7 +69,9 @@ class TestGenerateSearchQuery(unittest.TestCase):
 
     def test_string_params(self):
         """Test with string-based parameters like interval and direction"""
-        search_query = SearchQuery(actor_id="12345", interval="5m", direction="forward")
+        search_query = SearchQuery(
+            actor_uuid="12345", interval="5m", direction="forward"
+        )
         params = self.adapter.generate_search_query(search_query)
 
         self.assertEqual(params["interval"], "5m")
@@ -76,7 +79,7 @@ class TestGenerateSearchQuery(unittest.TestCase):
 
     def test_no_time_params(self):
         """Test that the function works without time parameters"""
-        search_query = SearchQuery(actor_id="12345", action="login")
+        search_query = SearchQuery(actor_uuid="12345", action="login")
         params = self.adapter.generate_search_query(search_query)
 
         # Should only have the query parameter
@@ -89,7 +92,7 @@ class TestGenerateSearchQuery(unittest.TestCase):
         now_ns = int(time.time_ns())
         one_hour_ago_ns = now_ns - (3600 * 1_000_000_000)
         search_query = SearchQuery(
-            actor_id="12345",
+            actor_uuid="12345",
             action="login",
             crud="read",
             limit=100,
@@ -99,9 +102,12 @@ class TestGenerateSearchQuery(unittest.TestCase):
             direction="backward",
         )
         params = self.adapter.generate_search_query(search_query)
-        # Only 'action' and 'crud' are labels, so expect: '{action="login", crud="read"}'
+        # pipeline_filter_fields are sets (unordered)
         self.assertTrue("query" in params)
-        self.assertEqual(params["query"], '{action="login", crud="read"}')
+        self.assertTrue(params["query"].startswith("{}"))
+        self.assertIn('action="login"', params["query"])
+        self.assertIn('crud="read"', params["query"])
+        self.assertIn('actor_uuid="12345"', params["query"])
         self.assertEqual(params["limit"], 100)
         self.assertEqual(params["start"], one_hour_ago_ns)
         self.assertEqual(params["end"], now_ns)
