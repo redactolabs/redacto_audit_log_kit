@@ -1,8 +1,12 @@
 import unittest
 import datetime
+import os
 from redacto_audit_log_kit.client import AuditClient
 from redacto_audit_log_kit.adapter import GrafanaLokiAdapter
 from redacto_audit_log_kit.schema import AuditEvent, SearchQuery
+
+# Environment variable to control whether to run tests requiring Loki
+SKIP_INTEGRATION_TESTS = os.environ.get("SKIP_INTEGRATION_TESTS", "1") == "1"
 
 # class DummyAuditEvent:
 #     def __init__(self):
@@ -65,6 +69,7 @@ class TestAuditClientFlow(unittest.TestCase):
         self.assertIn("labels", result)
         self.assertIn("structured_metadata", result)
 
+    @unittest.skipIf(SKIP_INTEGRATION_TESTS, "Requires running Loki instance")
     def test_report_event(self):
         event_dict = self.adapter.define_event(self.audit_event)
         result = self.client.report_event(event_dict)
@@ -72,6 +77,7 @@ class TestAuditClientFlow(unittest.TestCase):
         self.assertIn("status_code", result)
         self.assertIn("message", result)
 
+    @unittest.skipIf(SKIP_INTEGRATION_TESTS, "Requires running Loki instance")
     def test_log(self):
         result = self.client.log(self.audit_event)
         self.assertIn("status", result)

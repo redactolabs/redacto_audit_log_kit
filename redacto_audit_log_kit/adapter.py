@@ -1,7 +1,5 @@
-# TODO: TEST the classes in this repo first
 # TODO: check the float check for unix epoch timestamp inputs
-
-# TODO: remove unused files from the codebase ASAP
+# TODO: can we run a loki instance to run test cases?
 
 import os
 from pprint import pprint

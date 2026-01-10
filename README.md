@@ -62,6 +62,55 @@ services:
 poetry install redacto_audit_log_kit
 ```
 
+## 🧪 Running Tests
+
+The package includes unit tests located in `redacto_audit_log_kit/tests/`. Tests are divided into two categories:
+
+- **Unit Tests**: Tests that don't require external dependencies (default)
+- **Integration Tests**: Tests that require a running Loki instance
+
+### Run Unit Tests Only (No Loki Required)
+
+By default, tests requiring a Loki instance are skipped. You can also explicitly set `SKIP_INTEGRATION_TESTS=1`:
+
+```bash
+# From the redacto_audit_log_kit subdirectory
+cd redacto_audit_log_kit
+
+# Default behavior (skips Loki tests)
+python -m unittest discover -s tests -p "test_*.py"
+
+```
+
+### Run All Tests (Including Loki Integration Tests)
+
+To run tests that require a running Loki instance, set `SKIP_INTEGRATION_TESTS=0`:
+
+```bash
+# Ensure Loki is running, then:
+cd redacto_audit_log_kit
+SKIP_INTEGRATION_TESTS=0 python -m unittest discover -s tests -p "test_*.py"
+```
+
+### Run Individual Test Files
+
+```bash
+# Run specific test file
+python -m unittest tests.test_audit_client_flow
+python -m unittest tests.test_generate_search_query
+python -m unittest tests.test_logql_query_generation
+```
+
+### Run with Verbose Output
+
+```bash
+# Unit tests only (verbose)
+python -m unittest discover -s tests -p "test_*.py" -v
+
+# All tests including Loki integration (verbose)
+SKIP_INTEGRATION_TESTS=0 python -m unittest discover -s tests -p "test_*.py" -v
+```
+
 ## 🏗️ Architecture
 
 The Redacto Audit Log Kit is designed with flexibility in mind, featuring a modular architecture:
@@ -70,3 +119,5 @@ The Redacto Audit Log Kit is designed with flexibility in mind, featuring a modu
 - **Adapters**: Backend-specific implementations (currently supporting Grafana Loki)
 - **Schema**: Standardized data models for audit events and queries
 - **Django Integration**: Seamless integration with Django applications
+
+

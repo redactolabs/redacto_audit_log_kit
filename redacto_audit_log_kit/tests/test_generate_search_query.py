@@ -1,3 +1,5 @@
+#NOTE: These test cases fail, due to the difference in expected order of labels in the generated LogQL query and the actual order. pls look at the output of the test cases to see the difference.
+
 import unittest
 import datetime
 import time
