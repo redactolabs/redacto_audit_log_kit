@@ -1,22 +1,12 @@
-#TODO: This will have two classes an audit base class which will be POC for the client to the external audit logs library
-#TODO: The second class will be the adapter class which will be the interface for the external audit logs library
+# TODO: TEST the classes in this repo first
+# TODO: check the float check for unix epoch timestamp inputs
 
-
-#TODO: Fidure out storage of the logs when uisng loki
-#TODO: Figure out a way to update the written logs in elastic search to enable read operations for our services
-#TODO: TEST the classes in this repo first
-#TODO: install this in vendor server and send test logs from there
-#TODO: Work on the generate search query function
-#TODO: add proper logging
-#TODO: check the float check for unix epoch timestamp inputs
-
-
-
-#TODO: remove unused files from the codebase ASAP 
+# TODO: remove unused files from the codebase ASAP
 
 import os
 from pprint import pprint
 from typing import Optional
+
 # from loguru import logger
 import requests
 import time
@@ -40,27 +30,31 @@ class AuditAdapter(ABC):
     @abstractmethod
     def report_event(self, event):
         raise NotImplementedError
+
     @abstractmethod
     def define_event(self, event):
         raise NotImplementedError
+
     @abstractmethod
     def get_events(self, last, before):
         raise NotImplementedError
+
     @abstractmethod
     def log(self, message):
         raise NotImplementedError
+
     @abstractmethod
     def generate_search_query(self, criteria):
         raise NotImplementedError
 
 
 class GrafanaLokiAdapter(AuditAdapter):
-    label_fields =  {
+    label_fields = {
         "organization_uuid",
         "workspace_uuid",
         "vrm_vendor_id",
-        "service_name"
-        }
+        "service_name",
+    }
 
     pipeline_filter_fields = {
         "source_ip",
@@ -71,7 +65,7 @@ class GrafanaLokiAdapter(AuditAdapter):
         "actor_name",
         "actor_uuid",
         "resource_name",
-        "resource_uuid"
+        "resource_uuid",
     }
 
     non_logql_query_params = {
@@ -82,9 +76,6 @@ class GrafanaLokiAdapter(AuditAdapter):
         "interval",
         "direction",
     }
-
-
-
 
     def define_event(self, audit_log_entry: AuditEvent):
 
@@ -121,12 +112,20 @@ class GrafanaLokiAdapter(AuditAdapter):
                 "structured_metadata": structured_metadata,
             }
 
+        except (
+            AuditKitConfigurationError,
+            AuditKitConnectionError,
+            AuditKitExternalServiceError,
+            AuditKitInvalidDataError,
+            AuditKitEventProcessingError,
+        ):
+            raise  # Re-raise custom exceptions as-is
         except (AttributeError, ValueError, TypeError) as e:
             raise AuditKitInvalidDataError(f"define_event unexpected error: {e}")
         except Exception as e:
             raise AuditKitEventProcessingError(f"define_event unexpected error: {e}")
 
-    def report_event(self, defined_event_dict:dict):
+    def report_event(self, defined_event_dict: dict):
         """
         Accepts an AuditEvent, extracts timestamp and description, and sends to Loki.
         Raises AuditKitConfigurationError, AuditKitConnectionError, AuditKitExternalServiceError, or AuditKitEventProcessingError.
@@ -134,36 +133,51 @@ class GrafanaLokiAdapter(AuditAdapter):
         try:
             # loki_base_url = os.getenv('LOKI_BASE_URL', 'http://localhost:3100')
             # loki_base_url = os.getenv('LOKI_BASE_URL', 'http://host.docker.internal:3100')
-            loki_base_url = os.getenv('LOKI_BASE_URL')
-            push_events_endpoint = loki_base_url + '/loki/api/v1/push'
-
-            if not push_events_endpoint:
+            loki_base_url = os.getenv("LOKI_BASE_URL")
+            if not loki_base_url:
                 raise AuditKitConfigurationError("LOKI_BASE_URL is not set.")
+            push_events_endpoint = loki_base_url + "/loki/api/v1/push"
+
             headers = {
-                'Content-Type': 'application/json',
+                "Content-Type": "application/json",
             }
 
-            ts = str(defined_event_dict['timestamp'])
-            msg = defined_event_dict['body']
-            structured_meta_data = defined_event_dict.get('structured_metadata', {})
-            labels = defined_event_dict.get('labels', {})
-            structured_meta_data = {k: str(v) for k, v in defined_event_dict.get('structured_metadata', {}).items()}
-            streams = [{
-                "stream": labels,
-                "values": [[ts, msg, structured_meta_data]]
-            }]
+            ts = str(defined_event_dict["timestamp"])
+            msg = defined_event_dict["body"]
+            structured_meta_data = defined_event_dict.get("structured_metadata", {})
+            labels = defined_event_dict.get("labels", {})
+            structured_meta_data = {
+                k: str(v)
+                for k, v in defined_event_dict.get("structured_metadata", {}).items()
+            }
+            streams = [{"stream": labels, "values": [[ts, msg, structured_meta_data]]}]
             payload = {"streams": streams}
             # pprint(payload)
-            try:
-                response = requests.post(push_events_endpoint, json=payload, headers=headers)
-            except requests.exceptions.RequestException as e:
-                raise AuditKitConnectionError(f"report_event network error: {e}")
+            response = requests.post(
+                push_events_endpoint, json=payload, headers=headers
+            )
             if response.status_code not in [200, 204]:
                 # logger.error(f"Loki error: {response.status_code}, {response.text}")
-                raise AuditKitExternalServiceError(response.status_code, f"Loki returned: {response.text}")
+                raise AuditKitExternalServiceError(
+                    response.status_code, f"Loki returned: {response.text}"
+                )
 
-            return {"status": "success", "status_code": response.status_code, "message": "Event reported successfully"}
+            return {
+                "status": "success",
+                "status_code": response.status_code,
+                "message": "Event reported successfully",
+            }
 
+        except (
+            AuditKitConfigurationError,
+            AuditKitConnectionError,
+            AuditKitExternalServiceError,
+            AuditKitInvalidDataError,
+            AuditKitEventProcessingError,
+        ):
+            raise  # Re-raise custom exceptions as-is
+        except requests.exceptions.RequestException as e:
+            raise AuditKitConnectionError(f"report_event network error: {e}")
         except (KeyError, ValueError, TypeError) as e:
             raise AuditKitInvalidDataError(f"report_event failed: {e}")
         except Exception as e:
@@ -178,6 +192,14 @@ class GrafanaLokiAdapter(AuditAdapter):
         try:
             defined_event_dict = self.define_event(audit_log_entry)
             return self.report_event(defined_event_dict)
+        except (
+            AuditKitConfigurationError,
+            AuditKitConnectionError,
+            AuditKitExternalServiceError,
+            AuditKitInvalidDataError,
+            AuditKitEventProcessingError,
+        ):
+            raise  # Re-raise custom exceptions as-is
         except Exception as e:
             # logger.exception(f"Failed to log audit event: {e}")
             raise AuditKitEventProcessingError(f"log unexpected error: {e}")
@@ -196,16 +218,15 @@ class GrafanaLokiAdapter(AuditAdapter):
 
         # Create label selector string
         if label_filters:
-            label_selector = '{' + ', '.join(label_filters) + '}'
+            label_selector = "{" + ", ".join(label_filters) + "}"
         else:
-            label_selector = '{}'
+            label_selector = "{}"
 
         # Build pipeline filters from pipeline_filter_fields
         for field in self.pipeline_filter_fields:
             if field in query_dict:
                 value = query_dict[field]
                 pipeline_filters.append(f'{field}="{value}"')
-
 
         # Construct pipeline string
         if pipeline_filters:
@@ -230,13 +251,13 @@ class GrafanaLokiAdapter(AuditAdapter):
         try:
             params = {}
             # Always use generated LogQL query
-            params['query'] = self._generate_logql_query(search_query)
+            params["query"] = self._generate_logql_query(search_query)
 
             for field in self.non_logql_query_params:
                 value = getattr(search_query, field, None)
                 if value is not None:
                     # Special handling for time fields
-                    if field in ('start', 'end'):
+                    if field in ("start", "end"):
                         if isinstance(value, datetime.datetime):
                             params[field] = int(value.timestamp() * 1_000_000_000)
                         elif isinstance(value, (int, float)):
@@ -246,7 +267,9 @@ class GrafanaLokiAdapter(AuditAdapter):
                             else:
                                 params[field] = int(float(value) * 1_000_000_000)
                         else:
-                            raise AuditKitInvalidDataError(f"{field} has unsupported type: {type(value)}")
+                            raise AuditKitInvalidDataError(
+                                f"{field} has unsupported type: {type(value)}"
+                            )
                     else:
                         params[field] = value
             #  # If caller didn't set start/end, default to a sane window
@@ -258,12 +281,22 @@ class GrafanaLokiAdapter(AuditAdapter):
 
             return params
 
+        except (
+            AuditKitConfigurationError,
+            AuditKitConnectionError,
+            AuditKitExternalServiceError,
+            AuditKitInvalidDataError,
+            AuditKitEventProcessingError,
+        ):
+            raise  # Re-raise custom exceptions as-is
         except Exception as e:
-            raise AuditKitEventProcessingError(f"generate_search_query unexpected error: {e}")
+            raise AuditKitEventProcessingError(
+                f"generate_search_query unexpected error: {e}"
+            )
 
     def get_events(
         self,
-        #TODO: RADHIKA here we need to take in the page size too
+        # TODO: RADHIKA here we need to take in the page size too
         search_query: SearchQuery,
     ):
         """
@@ -274,177 +307,39 @@ class GrafanaLokiAdapter(AuditAdapter):
             params = self.generate_search_query(search_query)
 
             # loki_base_url = os.getenv('LOKI_BASE_URL', 'http://host.docker.internal:3100')
-            loki_base_url = os.getenv('LOKI_BASE_URL')
-            # get_events_endpoint = loki_base_url + f'/loki/api/v1/query_range?query={params["query"]}'
-            get_events_endpoint = loki_base_url + f'/loki/api/v1/query_range'
+            loki_base_url = os.getenv("LOKI_BASE_URL")
+            if not loki_base_url:
+                raise AuditKitConfigurationError("LOKI_BASE_URL is not set.")
+            get_events_endpoint = loki_base_url + "/loki/api/v1/query_range"
 
             print(f"{get_events_endpoint=} | {params=}")
 
-            if not get_events_endpoint:
-                raise AuditKitConfigurationError("LOKI_BASE_URL is not set.")
             headers = {
-                'Accept': 'application/json',
+                "Accept": "application/json",
             }
-            try:
-                response = requests.get(get_events_endpoint, headers=headers, params=params)
-            except requests.exceptions.RequestException as e:
-                raise AuditKitConnectionError(f"get_events network error: {e}")
+            response = requests.get(get_events_endpoint, headers=headers, params=params)
             if response.status_code != 200:
-                raise AuditKitExternalServiceError(response.status_code, f"Loki returned: {response.text}")
+                raise AuditKitExternalServiceError(
+                    response.status_code, f"Loki returned: {response.text}"
+                )
             return response.json()
+
+        except (
+            AuditKitConfigurationError,
+            AuditKitConnectionError,
+            AuditKitExternalServiceError,
+            AuditKitInvalidDataError,
+            AuditKitEventProcessingError,
+        ):
+            raise  # Re-raise custom exceptions as-is
+        except requests.exceptions.RequestException as e:
+            raise AuditKitConnectionError(f"get_events network error: {e}")
         except Exception as e:
             raise AuditKitEventProcessingError(f"get_events unexpected error: {e}")
 
 
-# def create_adapter(adapter_type=None):
-#     """Factory function to create the appropriate adapter based on configuration"""
-#     adapter_type = adapter_type or os.getenv('AUDIT_ADAPTER', 'loki').lower()
-
-#     if adapter_type == 'loki':
-#         return GrafanaLokiAdapter()
-#     else:
-#         raise ValueError(f"Unknown adapter type: {adapter_type}")
-
-
-
-
-# def _generate_logql_query(self, search_query: SearchQuery):
-    #     # Convert input to dictionary, ignoring None values
-    #     query_dict = search_query.model_dump(exclude_none=True)
-    #     label_filters = []
-    #     pipeline_filters = []
-
-    #     # 1. Handle the only label: actor_id
-    #     actor_id = query_dict.pop("actor_id", None)
-    #     if actor_id is not None:
-    #         label_selector = f'{{actor_id="{actor_id}"}}'
-    #     else:
-    #         label_selector = "{}"
-
-    #     #TODO: the queries on the below fields are not indexed since they are not labels(which are indexed by loki), so we should try and keep all the frequently queried fields as labels
-    #     for k in [
-    #         "crud", "action", "source_ip", "actor_name",
-    #         "target_id", "target_name", "target_type",
-    #         "group_id", "group_name", "description"
-    #     ]:
-    #         if k in query_dict:
-    #             # For robust matching, prefer JSON operator if logs are structured JSON
-    #             pipeline_filters.append(f'{k}="{query_dict[k]}"')
-
-    #     if pipeline_filters:
-    #         # pipeline = " | json | " + " | ".join(pipeline_filters)
-    #         pipeline = " | " + " | ".join(pipeline_filters)
-
-    #     else:
-    #         pipeline = ""
-    #     logql_query = label_selector + pipeline
-    #     return logql_query
-
-
-
- # def define_event(self, audit_log_entry: SearchQuery):
-    #     """
-    #     Extracts timestamp and description from the incoming AuditEvent.
-    #     Returns a dict with 'timestamp' (as ns int) and 'description' (str).
-    #     Raises AuditKitInvalidDataError or AuditKitEventProcessingError on error.
-    #     """
-    #     try:
-    #         if hasattr(audit_log_entry, 'created'):
-    #             if isinstance(audit_log_entry.created, datetime.datetime):
-    #                 unix_epoch_ns = int(audit_log_entry.created.timestamp() * 1_000_000_000)
-    #             elif isinstance(audit_log_entry.created, (int, float)):
-    #                 # If already in ns (13+ digits), use as is, else convert from seconds
-    #                 if audit_log_entry.created > 1e12:
-    #                     unix_epoch_ns = int(audit_log_entry.created)
-    #                 else:
-    #                     unix_epoch_ns = int(float(audit_log_entry.created) * 1_000_000_000)
-    #         else:
-    #             unix_epoch_ns = int(time.time_ns())
-
-    #         description = getattr(audit_log_entry, 'description', str(audit_log_entry))
-    #         extra_json_values = {}
-    #         if hasattr(audit_log_entry, 'action'):
-    #             extra_json_values['action'] = str(getattr(audit_log_entry, 'action', ''))
-    #         if hasattr(audit_log_entry, 'crud'):
-    #             extra_json_values['crud'] = str(getattr(audit_log_entry, 'crud', ''))
-    #         if hasattr(audit_log_entry, 'source_ip'):
-    #             extra_json_values['source_ip'] = str(getattr(audit_log_entry, 'source_ip', ''))
-    #         if hasattr(audit_log_entry, 'actor') and getattr(audit_log_entry, 'actor') is not None:
-    #             actor = getattr(audit_log_entry, 'actor')
-    #             # extra_json_values['actor_id'] = str(getattr(actor, 'id', ''))
-    #             extra_json_values['actor_name'] = str(getattr(actor, 'name', ''))
-    #         if hasattr(audit_log_entry, 'group') and getattr(audit_log_entry, 'group') is not None:
-    #             group = getattr(audit_log_entry, 'group')
-    #             extra_json_values['group_id'] = str(getattr(group, 'id', ''))
-    #             extra_json_values['group_name'] = str(getattr(group, 'name', ''))
-    #         if hasattr(audit_log_entry, 'target') and getattr(audit_log_entry, 'target') is not None:
-    #             target = getattr(audit_log_entry, 'target')
-    #             extra_json_values['target_name'] = str(getattr(target, 'name', ''))
-    #             extra_json_values['target_id'] = str(getattr(target, 'id', ''))
-    #             extra_json_values['target_type'] = str(getattr(target, 'type', ''))
-    #             if hasattr(target, 'fields'):
-    #                 fields = getattr(target, 'fields', {})
-    #                 if isinstance(fields, dict):
-    #                     for k, v in fields.items():
-    #                         extra_json_values[str(k)] = str(v)
-    #         return {
-    #             'timestamp': unix_epoch_ns,
-    #             'body': description,
-    #             'extra_json_values': extra_json_values
-    #             }
-
-    #     except (AttributeError, ValueError, TypeError) as e:
-    #         raise AuditKitInvalidDataError(f"define_event unexpected error: {e}")
-    #     except Exception as e:
-    #         raise AuditKitEventProcessingError(f"define_event unexpected error: {e}")
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-# class ExternalLibAdapter(AuditBase):
-#     # def __init__(self, external_lib_instance=None):
-#     #     external_tool = os.getenv('EXTERNAL_AUDIT_TOOL', 'signoz').lower()
-#     #     if external_lib_instance is not None:
-#     #         self.external_lib = external_lib_instance
-#     #     else:
-#     #         if external_tool == 'signoz':
-#     #             # Avoid recursion: do not instantiate SignozAdapter here, just set to None or a stub
-#     #             self.external_lib = None  # or set to a real Signoz client if available
-
-#     def report_event(self, event):
-#         return self.external_lib.send_event(event)
-
-#     def define_event(self, event):
-#         return self.external_lib.create_event(event)
-
-#     def get_events(self):
-#         return self.external_lib.fetch_events()
-
-#     def log(self, message):
-#         return self.external_lib.log(message)
-
-#     def generate_search_query(self, criteria):
-#         return self.external_lib.build_query(criteria)
-
-
-
-
-
-
 # SIGNOZ_INGESTION_KEY = settings.SIGNOZ_INGESTION_KEY
 # SIGNOZ_BASE_URL = settings.SIGNOZ_BASE_URL
-
 
 
 # class SignozAdapter(ExternalLibAdapter):
@@ -526,7 +421,6 @@ class GrafanaLokiAdapter(AuditAdapter):
 #         return query
 
 
-
 # #TODO: remove this function after testing
 # def call_log():
 #     example = AuditLogEntry(
@@ -543,4 +437,3 @@ class GrafanaLokiAdapter(AuditAdapter):
 #     input = [example]
 #     obj = SignozAdapter()
 #     return obj.log(input)
-
