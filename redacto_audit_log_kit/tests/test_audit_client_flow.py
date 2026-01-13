@@ -1,8 +1,12 @@
 import unittest
 import datetime
+import os
 from redacto_audit_log_kit.client import AuditClient
 from redacto_audit_log_kit.adapter import GrafanaLokiAdapter
 from redacto_audit_log_kit.schema import AuditEvent, SearchQuery
+
+# Environment variable to control whether to run tests requiring Loki
+SKIP_INTEGRATION_TESTS = os.environ.get("SKIP_INTEGRATION_TESTS", "1") == "1"
 
 # class DummyAuditEvent:
 #     def __init__(self):
@@ -20,25 +24,26 @@ from redacto_audit_log_kit.schema import AuditEvent, SearchQuery
 #         self.vrm_vendor_id = "vendor-1"
 #         self.service_name = "svc"
 
+
 class TestAuditClientFlow(unittest.TestCase):
     def setUp(self):
         self.adapter = GrafanaLokiAdapter()
-        self.client = AuditClient(self.adapter)  
+        self.client = AuditClient(self.adapter)
         self.audit_event = AuditEvent(
-            action = "create",
-            crud = "c",
-            created = int(datetime.datetime.now().timestamp() * 1_000_000_000),
-            source_ip = "127.0.0.1",
-            actor_name = "Test Actor",
-            group_name = "Test Group",
-            target_name = "Test Target",
-            target_id = "target-1",
-            target_type = "resource",
-            description = "Test audit log entry",
-            organization_uuid = "org-1",
-            vrm_vendor_id = "vendor-1",
-            service_name = "svc"
-        )     
+            action="create",
+            crud="c",
+            created=int(datetime.datetime.now().timestamp() * 1_000_000_000),
+            source_ip="127.0.0.1",
+            actor_name="Test Actor",
+            group_name="Test Group",
+            target_name="Test Target",
+            target_id="target-1",
+            target_type="resource",
+            description="Test audit log entry",
+            organization_uuid="org-1",
+            vrm_vendor_id="vendor-1",
+            service_name="svc",
+        )
         self.search_query = SearchQuery(
             organization_uuid="org-1",
             vrm_vendor_id="vendor-1",
@@ -54,9 +59,9 @@ class TestAuditClientFlow(unittest.TestCase):
             description="Test audit log entry",
             limit=100,
             interval="5m",
-            direction="forward"
+            direction="forward",
         )
-    
+
     def test_define_event(self):
         result = self.client.define_event(self.audit_event)
         self.assertIn("timestamp", result)
@@ -64,6 +69,7 @@ class TestAuditClientFlow(unittest.TestCase):
         self.assertIn("labels", result)
         self.assertIn("structured_metadata", result)
 
+    @unittest.skipIf(SKIP_INTEGRATION_TESTS, "Requires running Loki instance")
     def test_report_event(self):
         event_dict = self.adapter.define_event(self.audit_event)
         result = self.client.report_event(event_dict)
@@ -71,6 +77,7 @@ class TestAuditClientFlow(unittest.TestCase):
         self.assertIn("status_code", result)
         self.assertIn("message", result)
 
+    @unittest.skipIf(SKIP_INTEGRATION_TESTS, "Requires running Loki instance")
     def test_log(self):
         result = self.client.log(self.audit_event)
         self.assertIn("status", result)
@@ -83,6 +90,7 @@ class TestAuditClientFlow(unittest.TestCase):
         self.assertEqual(result["limit"], 100)
         self.assertEqual(result["interval"], "5m")
         self.assertEqual(result["direction"], "forward")
+
 
 #     def z(self):
 #         # This will likely fail if Loki is not running, but tests the flow

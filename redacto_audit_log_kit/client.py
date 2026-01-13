@@ -1,8 +1,9 @@
-#TODO: this will be an interface dictating the adapter classes what to do
+# TODO: this will be an interface dictating the adapter classes what to do
+
 
 class AuditClient:
     def __init__(self, adapter):
-        #TODO: select adapter (external audit logs library) based on config or input parameter
+        # TODO: select adapter (external audit logs library) based on config or input parameter
         self.adapter = adapter
 
     def report_event(self, *args, **kwargs):
