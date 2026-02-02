@@ -15,6 +15,7 @@ from abc import ABC, abstractmethod
 from django.conf import settings
 
 from redacto_audit_log_kit.schema import SearchQuery, AuditEvent
+from redacto_audit_log_kit.signing import compute_event_signature
 from redacto_audit_log_kit.exceptions import (
     AuditKitConfigurationError,
     AuditKitConnectionError,
@@ -99,16 +100,27 @@ class GrafanaLokiAdapter(AuditAdapter):
             for field, value in audit_log_entry.model_dump().items():
                 if field in self.label_fields:
                     labels[field] = value
-                elif field not in {"description", "created"}:
+                elif field not in {"description", "created", "event_signature"}:
                     if value is not None:
                         structured_metadata[field] = value
 
-            return {
+            event_dict = {
                 "timestamp": unix_epoch_ns,
                 "body": audit_log_entry.description,
                 "labels": labels,
                 "structured_metadata": structured_metadata,
             }
+
+            signing_key = os.environ.get("AUDIT_LOG_SIGNING_KEY")
+            if not signing_key:
+                raise AuditKitConfigurationError(
+                    "AUDIT_LOG_SIGNING_KEY environment variable is required"
+                )
+            event_dict["structured_metadata"]["event_signature"] = (
+                compute_event_signature(event_dict, signing_key)
+            )
+
+            return event_dict
 
         except (
             AuditKitConfigurationError,

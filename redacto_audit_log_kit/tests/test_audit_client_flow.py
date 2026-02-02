@@ -27,6 +27,7 @@ SKIP_INTEGRATION_TESTS = os.environ.get("SKIP_INTEGRATION_TESTS", "1") == "1"
 
 class TestAuditClientFlow(unittest.TestCase):
     def setUp(self):
+        os.environ.setdefault("AUDIT_LOG_SIGNING_KEY", "test-secret-key")
         self.adapter = GrafanaLokiAdapter()
         self.client = AuditClient(self.adapter)
         self.audit_event = AuditEvent(
@@ -68,6 +69,10 @@ class TestAuditClientFlow(unittest.TestCase):
         self.assertIn("body", result)
         self.assertIn("labels", result)
         self.assertIn("structured_metadata", result)
+        self.assertIn("event_signature", result["structured_metadata"])
+        sig = result["structured_metadata"]["event_signature"]
+        self.assertEqual(len(sig), 64)
+        self.assertTrue(all(c in "0123456789abcdef" for c in sig))
 
     @unittest.skipIf(SKIP_INTEGRATION_TESTS, "Requires running Loki instance")
     def test_report_event(self):
