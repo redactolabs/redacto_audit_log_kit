@@ -3,7 +3,6 @@ import unittest
 from redacto_audit_log_kit.signing import (
     compute_event_signature,
     verify_event_signature,
-    _canonical_representation,
 )
 
 

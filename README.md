@@ -168,7 +168,7 @@ is_valid = verify_event_signature(event_dict, signature, signing_key)
 
 if not is_valid:
     # Event has been tampered with
-    raise SecurityError("Audit log integrity check failed")
+    raise ValueError("Audit log integrity check failed")
 ```
 
 ## 🏗️ Architecture
