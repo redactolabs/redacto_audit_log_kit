@@ -69,12 +69,11 @@ class TestSigning(unittest.TestCase):
 
     def test_verify_valid(self):
         sig = compute_event_signature(self.event, self.key)
-        is_valid, computed = verify_event_signature(self.event, sig, self.key)
+        is_valid = verify_event_signature(self.event, sig, self.key)
         self.assertTrue(is_valid)
-        self.assertEqual(sig, computed)
 
     def test_verify_invalid(self):
-        is_valid, _ = verify_event_signature(self.event, "0" * 64, self.key)
+        is_valid = verify_event_signature(self.event, "0" * 64, self.key)
         self.assertFalse(is_valid)
 
     def test_none_body(self):
@@ -98,5 +97,3 @@ class TestSigning(unittest.TestCase):
         self.assertEqual(len(sig), 64)
 
 
-if __name__ == "__main__":
-    unittest.main()

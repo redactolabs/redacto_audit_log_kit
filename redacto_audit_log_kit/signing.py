@@ -3,7 +3,7 @@
 import hashlib
 import hmac
 import json
-from typing import Any, Dict, Tuple
+from typing import Any, Dict
 
 
 def _canonical_representation(event_dict: Dict[str, Any]) -> str:
@@ -41,11 +41,16 @@ def compute_event_signature(event_dict: Dict[str, Any], signing_key: str) -> str
 
 def verify_event_signature(
     event_dict: Dict[str, Any], expected_signature: str, signing_key: str
-) -> Tuple[bool, str]:
+) -> bool:
     """Verify an event's HMAC signature.
 
+    Args:
+        event_dict: Dict with keys timestamp, body, labels, structured_metadata.
+        expected_signature: The signature to verify against.
+        signing_key: Secret key for HMAC.
+
     Returns:
-        Tuple of (is_valid, computed_signature).
+        True if the signature is valid, False otherwise.
     """
     computed = compute_event_signature(event_dict, signing_key)
-    return hmac.compare_digest(computed, expected_signature), computed
+    return hmac.compare_digest(computed, expected_signature)

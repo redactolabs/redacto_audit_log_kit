@@ -76,6 +76,13 @@ class GrafanaLokiAdapter(AuditAdapter):
         "direction",
     }
 
+    def __init__(self):
+        self.signing_key = os.environ.get("AUDIT_LOG_SIGNING_KEY")
+        if not self.signing_key:
+            raise AuditKitConfigurationError(
+                "AUDIT_LOG_SIGNING_KEY environment variable is required"
+            )
+
     def define_event(self, audit_log_entry: AuditEvent):
 
         try:
@@ -100,6 +107,8 @@ class GrafanaLokiAdapter(AuditAdapter):
             for field, value in audit_log_entry.model_dump().items():
                 if field in self.label_fields:
                     labels[field] = value
+                # event_signature is excluded because it's computed internally by the
+                # adapter and not part of the AuditEvent schema - callers never provide it
                 elif field not in {"description", "created", "event_signature"}:
                     if value is not None:
                         structured_metadata[field] = value
@@ -111,13 +120,8 @@ class GrafanaLokiAdapter(AuditAdapter):
                 "structured_metadata": structured_metadata,
             }
 
-            signing_key = os.environ.get("AUDIT_LOG_SIGNING_KEY")
-            if not signing_key:
-                raise AuditKitConfigurationError(
-                    "AUDIT_LOG_SIGNING_KEY environment variable is required"
-                )
             event_dict["structured_metadata"]["event_signature"] = (
-                compute_event_signature(event_dict, signing_key)
+                compute_event_signature(event_dict, self.signing_key)
             )
 
             return event_dict

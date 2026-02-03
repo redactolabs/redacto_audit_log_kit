@@ -111,6 +111,66 @@ python -m unittest discover -s tests -p "test_*.py" -v
 SKIP_INTEGRATION_TESTS=0 python -m unittest discover -s tests -p "test_*.py" -v
 ```
 
+## 🔐 Event Signing (HMAC-SHA256)
+
+Starting from the next version, the Audit Log Kit signs all events with HMAC-SHA256 to ensure tamper-proofing of individual log records. This is a **breaking change** that requires configuration before upgrading.
+
+### Migration Guide
+
+**⚠️ Important:** You must configure the signing key on all microservices *before* deploying the updated Audit Log Kit.
+
+#### Step 1: Generate a Signing Key
+
+Generate a secure 256-bit (32-byte) key:
+
+```bash
+# Using Python
+python -c "import secrets; print(secrets.token_hex(32))"
+
+# Using OpenSSL
+openssl rand -hex 32
+```
+
+#### Step 2: Configure Environment Variables
+
+Add the signing key to all microservices that use the Audit Log Kit:
+
+```bash
+# Required for all services using the Audit Log Kit
+export AUDIT_LOG_SIGNING_KEY="your-256-bit-hex-key-here"
+```
+
+For Docker deployments, add to your `docker-compose.yml` or secrets management:
+
+```yaml
+services:
+  your_service:
+    environment:
+      - AUDIT_LOG_SIGNING_KEY=${AUDIT_LOG_SIGNING_KEY}
+```
+
+#### Step 3: Deploy
+
+1. **First**, deploy the environment variable changes to all microservices
+2. **Then**, upgrade the Audit Log Kit package across services
+3. Verify events are being signed by checking for `event_signature` in structured metadata
+
+### Verifying Event Signatures
+
+To verify an event's integrity:
+
+```python
+from redacto_audit_log_kit.signing import verify_event_signature
+
+# event_dict should have: timestamp, body, labels, structured_metadata
+signature = event_dict["structured_metadata"]["event_signature"]
+is_valid = verify_event_signature(event_dict, signature, signing_key)
+
+if not is_valid:
+    # Event has been tampered with
+    raise SecurityError("Audit log integrity check failed")
+```
+
 ## 🏗️ Architecture
 
 The Redacto Audit Log Kit is designed with flexibility in mind, featuring a modular architecture:

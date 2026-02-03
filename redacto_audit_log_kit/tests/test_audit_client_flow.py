@@ -27,7 +27,7 @@ SKIP_INTEGRATION_TESTS = os.environ.get("SKIP_INTEGRATION_TESTS", "1") == "1"
 
 class TestAuditClientFlow(unittest.TestCase):
     def setUp(self):
-        os.environ.setdefault("AUDIT_LOG_SIGNING_KEY", "test-secret-key")
+        os.environ["AUDIT_LOG_SIGNING_KEY"] = "test-secret-key"
         self.adapter = GrafanaLokiAdapter()
         self.client = AuditClient(self.adapter)
         self.audit_event = AuditEvent(
