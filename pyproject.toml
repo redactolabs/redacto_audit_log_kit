@@ -8,7 +8,7 @@ readme = "README.md"
 packages = [{include = "redacto_audit_log_kit"}]
 
 [tool.poetry.dependencies]
-python = ">=3.12,<3.13"
+python = ">=3.12,<3.14"
 django = ">=4.2,<6.0"
 django-ninja = ">=1.4.3,<2.0.0"
 pydantic = ">=2.11.9,<3.0.0"
