@@ -1,0 +1,26 @@
+# .github/dependabot.yml
+# For: redacto_audit_log_kit (Python only)
+version: 2
+
+updates:
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "Asia/Kolkata"
+    open-pull-requests-limit: 10
+    reviewers:
+      - "SheikMdS"
+    labels:
+      - "dependencies"
+      - "security"
+    commit-message:
+      prefix: "chore(deps)"
+      include: "scope"
+    groups:
+      pip-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
