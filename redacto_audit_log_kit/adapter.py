@@ -53,6 +53,7 @@ class GrafanaLokiAdapter(AuditAdapter):
         "workspace_uuid",
         "vrm_vendor_id",
         "service_name",
+        "kb_id",
     }
 
     pipeline_filter_fields = {

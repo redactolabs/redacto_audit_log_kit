@@ -73,6 +73,7 @@ class TestGrafanaLokiAdapter(unittest.TestCase):
             organization_uuid="org-123",
             vrm_vendor_id="vendor-1",
             service_name="svc",
+            kb_id="kb-1",
             action="update",
             actor_name="alice",
             actor_uuid="actor-1",
@@ -89,6 +90,7 @@ class TestGrafanaLokiAdapter(unittest.TestCase):
         self.assertIn('organization_uuid="org-123"', result)
         self.assertIn('vrm_vendor_id="vendor-1"', result)
         self.assertIn('service_name="svc"', result)
+        self.assertIn('kb_id="kb-1"', result)
         # Check that the result contains all expected pipeline filters
         self.assertIn('action="update"', result)
         self.assertIn('actor_name="alice"', result)
