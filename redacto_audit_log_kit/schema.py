@@ -11,6 +11,7 @@ class AuditEvent(BaseModel):
     workspace_uuid: Optional[str] = None
     vrm_vendor_id: Optional[str] = None
     service_name: Optional[str] = None
+    kb_id: Optional[str] = None
     action: Optional[str] = None
     crud: Optional[str] = None
     source_ip: Optional[str] = None
@@ -29,6 +30,7 @@ class SearchQuery(BaseModel):
     workspace_uuid: Optional[str] = None
     vrm_vendor_id: Optional[str] = None  # label
     service_name: Optional[str] = None  # label
+    kb_id: Optional[str] = None  # label
     action: Optional[str] = None  # label
     actor_uuid: Optional[str] = None
     actor_name: Optional[str] = None  # label
