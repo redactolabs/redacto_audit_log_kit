@@ -5,6 +5,12 @@ from datetime import datetime
 from typing import Dict, Any, Optional
 from pydantic import BaseModel, Field
 
+# Validation constants for Loki query parameters
+MAX_LIMIT = 1000
+MIN_LIMIT = 1
+MAX_TIMESTAMP_NS = 9_999_999_999_999_999_999  # ~2286 AD in nanoseconds
+MIN_TIMESTAMP_NS = 0
+
 
 class AuditEvent(BaseModel):
     organization_uuid: Optional[str] = None
@@ -41,11 +47,11 @@ class SearchQuery(BaseModel):
     source_ip: Optional[str] = None
     description: Optional[str] = None
 
-    # Loki query_range parameters
+    # Loki query_range parameters with validation
     # query: Optional[str] = None
-    limit: Optional[int] = 100
-    start: Optional[int] = None
-    end: Optional[int] = None
+    limit: Optional[int] = Field(default=100, ge=MIN_LIMIT, le=MAX_LIMIT)
+    start: Optional[int] = Field(default=None, ge=MIN_TIMESTAMP_NS, le=MAX_TIMESTAMP_NS)
+    end: Optional[int] = Field(default=None, ge=MIN_TIMESTAMP_NS, le=MAX_TIMESTAMP_NS)
     since: Optional[str] = None
     interval: Optional[str] = None
     direction: Optional[str] = None

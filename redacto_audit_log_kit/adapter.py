@@ -14,7 +14,12 @@ import json
 from abc import ABC, abstractmethod
 from django.conf import settings
 
-from redacto_audit_log_kit.schema import SearchQuery, AuditEvent
+from redacto_audit_log_kit.schema import (
+    SearchQuery,
+    AuditEvent,
+    MAX_LIMIT,
+    MAX_TIMESTAMP_NS,
+)
 from redacto_audit_log_kit.signing import compute_event_signature
 from redacto_audit_log_kit.exceptions import (
     AuditKitConfigurationError,
@@ -276,7 +281,10 @@ class GrafanaLokiAdapter(AuditAdapter):
                         if isinstance(value, datetime.datetime):
                             params[field] = int(value.timestamp() * 1_000_000_000)
                         elif isinstance(value, (int, float)):
-                            # If already in ns (13+ digits), use as is, else convert from seconds
+                            if value > MAX_TIMESTAMP_NS:
+                                raise AuditKitInvalidDataError(
+                                    f"{field} value {value} exceeds maximum allowed value"
+                                )
                             if value > 1e12:
                                 params[field] = int(value)
                             else:
@@ -285,14 +293,19 @@ class GrafanaLokiAdapter(AuditAdapter):
                             raise AuditKitInvalidDataError(
                                 f"{field} has unsupported type: {type(value)}"
                             )
+                        # Validate timestamp bounds
+                        if params[field] > MAX_TIMESTAMP_NS:
+                            raise AuditKitInvalidDataError(
+                                f"{field} timestamp {params[field]} exceeds maximum allowed value"
+                            )
+                    elif field == "limit":
+                        if value > MAX_LIMIT:
+                            raise AuditKitInvalidDataError(
+                                f"limit {value} exceeds maximum allowed value {MAX_LIMIT}"
+                            )
+                        params[field] = value
                     else:
                         params[field] = value
-            #  # If caller didn't set start/end, default to a sane window
-            # if 'start' not in params or 'end' not in params:
-            #     now = datetime.datetime.now(datetime.timezone.utc)
-            #     start_dt = now - datetime.timedelta(hours=2)
-            #     params.setdefault('end',   int(now.timestamp()      * 1_000_000_000))
-            #     params.setdefault('start', int(start_dt.timestamp() * 1_000_000_000))
 
             return params
 
