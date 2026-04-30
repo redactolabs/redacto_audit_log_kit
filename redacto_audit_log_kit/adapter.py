@@ -13,12 +13,11 @@ import json
 
 from abc import ABC, abstractmethod
 from django.conf import settings
+from pydantic import ValidationError
 
 from redacto_audit_log_kit.schema import (
     SearchQuery,
     AuditEvent,
-    MAX_LIMIT,
-    MAX_TIMESTAMP_NS,
 )
 from redacto_audit_log_kit.signing import compute_event_signature
 from redacto_audit_log_kit.exceptions import (
@@ -281,10 +280,6 @@ class GrafanaLokiAdapter(AuditAdapter):
                         if isinstance(value, datetime.datetime):
                             params[field] = int(value.timestamp() * 1_000_000_000)
                         elif isinstance(value, (int, float)):
-                            if value > MAX_TIMESTAMP_NS:
-                                raise AuditKitInvalidDataError(
-                                    f"{field} value {value} exceeds maximum allowed value"
-                                )
                             if value > 1e12:
                                 params[field] = int(value)
                             else:
@@ -293,22 +288,15 @@ class GrafanaLokiAdapter(AuditAdapter):
                             raise AuditKitInvalidDataError(
                                 f"{field} has unsupported type: {type(value)}"
                             )
-                        # Validate timestamp bounds
-                        if params[field] > MAX_TIMESTAMP_NS:
-                            raise AuditKitInvalidDataError(
-                                f"{field} timestamp {params[field]} exceeds maximum allowed value"
-                            )
                     elif field == "limit":
-                        if value > MAX_LIMIT:
-                            raise AuditKitInvalidDataError(
-                                f"limit {value} exceeds maximum allowed value {MAX_LIMIT}"
-                            )
                         params[field] = value
                     else:
                         params[field] = value
 
             return params
 
+        except ValidationError as e:
+            raise AuditKitInvalidDataError(f"SearchQuery validation error: {e}")
         except (
             AuditKitConfigurationError,
             AuditKitConnectionError,
@@ -352,6 +340,8 @@ class GrafanaLokiAdapter(AuditAdapter):
                 )
             return response.json()
 
+        except ValidationError as e:
+            raise AuditKitInvalidDataError(f"SearchQuery validation error: {e}")
         except (
             AuditKitConfigurationError,
             AuditKitConnectionError,
