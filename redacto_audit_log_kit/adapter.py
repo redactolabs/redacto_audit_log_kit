@@ -13,7 +13,6 @@ import json
 
 from abc import ABC, abstractmethod
 from django.conf import settings
-from pydantic import ValidationError
 
 from redacto_audit_log_kit.schema import (
     SearchQuery,
@@ -288,15 +287,11 @@ class GrafanaLokiAdapter(AuditAdapter):
                             raise AuditKitInvalidDataError(
                                 f"{field} has unsupported type: {type(value)}"
                             )
-                    elif field == "limit":
-                        params[field] = value
                     else:
                         params[field] = value
 
             return params
 
-        except ValidationError as e:
-            raise AuditKitInvalidDataError(f"SearchQuery validation error: {e}")
         except (
             AuditKitConfigurationError,
             AuditKitConnectionError,
@@ -340,8 +335,6 @@ class GrafanaLokiAdapter(AuditAdapter):
                 )
             return response.json()
 
-        except ValidationError as e:
-            raise AuditKitInvalidDataError(f"SearchQuery validation error: {e}")
         except (
             AuditKitConfigurationError,
             AuditKitConnectionError,

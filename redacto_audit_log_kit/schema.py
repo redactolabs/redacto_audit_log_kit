@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 # Validation constants for Loki query parameters
 MAX_LIMIT = 1000
 MIN_LIMIT = 1
-MAX_TIMESTAMP_NS = 9_999_999_999_999_999_999  # ~2286 AD in nanoseconds
+MAX_TIMESTAMP_NS = 2**63 - 1  # int64 max ns, ~2262-04-11 UTC
 MIN_TIMESTAMP_NS = 0
 
 
