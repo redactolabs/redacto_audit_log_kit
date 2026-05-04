@@ -111,7 +111,3 @@ class TestAdapterRuntimeValidation(unittest.TestCase):
         params = self.adapter.generate_search_query(q)
         self.assertEqual(params["start"], valid_ts)
         self.assertEqual(params["end"], valid_ts + 1000000000)
-
-
-if __name__ == "__main__":
-    unittest.main()

@@ -113,7 +113,3 @@ class TestGenerateSearchQuery(unittest.TestCase):
         self.assertEqual(params["end"], now_ns)
         self.assertEqual(params["interval"], "5m")
         self.assertEqual(params["direction"], "backward")
-
-
-if __name__ == "__main__":
-    unittest.main()
