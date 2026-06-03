@@ -116,11 +116,12 @@ def query_loki(org_uuid, product, start_ns, end_ns, limit=MAX_LIMIT):
     return response.json()
 
 
-def fetch_all_events(org_uuid, product, start_dt, end_dt):
+def fetch_all_events(org_uuid, product, start_dt, end_dt, debug=False):
     """Fetch all events for an org, handling pagination if needed."""
     all_events = []
     current_end_ns = int(end_dt.timestamp() * 1e9)
     start_ns = int(start_dt.timestamp() * 1e9)
+    first_batch = True
 
     while True:
         response = query_loki(org_uuid, product, start_ns, current_end_ns)
@@ -129,19 +130,34 @@ def fetch_all_events(org_uuid, product, start_dt, end_dt):
         if not results:
             break
 
+        # Debug: print first result structure to understand format
+        if debug and first_batch and results:
+            import json
+            print("\n[DEBUG] Raw Loki response structure (first stream):")
+            print(json.dumps(results[0], indent=2, default=str)[:3000])
+            first_batch = False
+
         oldest_ts = None
         batch_count = 0
 
         for stream in results:
+            # Extract stream labels (organization_uuid, service_name, etc.)
+            stream_labels = stream.get("stream", {})
+
             for value in stream.get("values", []):
                 ts_ns = int(value[0])
                 body = value[1] if len(value) > 1 else ""
-                metadata = value[2] if len(value) > 2 else {}
+
+                # Structured metadata can be in value[2] (dict)
+                structured_meta = {}
+                if len(value) > 2 and isinstance(value[2], dict):
+                    structured_meta = value[2]
 
                 all_events.append({
                     "timestamp": datetime.fromtimestamp(ts_ns / 1e9, tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
                     "description": body,
-                    **metadata,
+                    **stream_labels,
+                    **structured_meta,
                 })
 
                 batch_count += 1
@@ -177,6 +193,7 @@ def main():
                         help="Product: vrm, tc, consent")
     parser.add_argument("--dry-run", action="store_true", help="Preview without fetching")
     parser.add_argument("--output-dir", default="./audit_logs_output", help="Output directory")
+    parser.add_argument("--debug", action="store_true", help="Print raw Loki response structure")
     args = parser.parse_args()
 
     product = args.product
@@ -208,7 +225,7 @@ def main():
         print(f"[{idx}/{len(org_mapping)}] {client_name}...", end=" ", flush=True)
 
         try:
-            events = fetch_all_events(org_uuid, product, start_dt, end_dt)
+            events = fetch_all_events(org_uuid, product, start_dt, end_dt, debug=args.debug)
             filepath = os.path.join(output_dir, f"{client_name}.csv")
             save_to_csv(events, filepath)
             print(f"{len(events)} events")
