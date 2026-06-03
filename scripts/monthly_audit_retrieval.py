@@ -69,18 +69,18 @@ PRODUCT_ORG_MAPPING = {
 LOKI_URL = "http://localhost:3100"
 MAX_LIMIT = 1000
 
-# CSV columns to export
+# CSV columns: (internal_field, display_header)
 CSV_COLUMNS = [
-    "timestamp",
-    "action",
-    "crud",
-    "actor_name",
-    "actor_uuid",
-    "resource_name",
-    "resource_uuid",
-    "resource_type",
-    "source_ip",
-    "description",
+    ("timestamp", "Timestamp"),
+    ("action", "Action"),
+    ("crud", "Operation Type"),
+    ("actor_name", "Performed By"),
+    ("actor_uuid", "User ID"),
+    ("resource_name", "Resource Name"),
+    ("resource_uuid", "Resource ID"),
+    ("resource_type", "Resource Type"),
+    ("source_ip", "IP Address"),
+    ("description", "Description"),
 ]
 
 
@@ -139,7 +139,7 @@ def fetch_all_events(org_uuid, product, start_dt, end_dt):
                 metadata = value[2] if len(value) > 2 else {}
 
                 all_events.append({
-                    "timestamp": datetime.fromtimestamp(ts_ns / 1e9, tz=timezone.utc).isoformat(),
+                    "timestamp": datetime.fromtimestamp(ts_ns / 1e9, tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
                     "description": body,
                     **metadata,
                 })
@@ -158,12 +158,17 @@ def fetch_all_events(org_uuid, product, start_dt, end_dt):
 
 
 def save_to_csv(events, filepath):
-    """Save events to CSV file."""
+    """Save events to CSV file with PM-friendly headers."""
     os.makedirs(os.path.dirname(filepath), exist_ok=True)
+
+    field_names = [col[0] for col in CSV_COLUMNS]
+    display_headers = [col[1] for col in CSV_COLUMNS]
+
     with open(filepath, "w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=CSV_COLUMNS, extrasaction="ignore")
-        writer.writeheader()
-        writer.writerows(events)
+        writer = csv.writer(f)
+        writer.writerow(display_headers)
+        for event in events:
+            writer.writerow([event.get(field, "") for field in field_names])
 
 
 def main():
