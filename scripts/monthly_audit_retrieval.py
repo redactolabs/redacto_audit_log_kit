@@ -5,8 +5,8 @@ Monthly Audit Log Retrieval Script (Self-contained)
 Fetches audit logs from Loki for all configured organizations for the past month.
 Saves results to CSV files.
 
-Dependencies: requests, python-dateutil
-Install: pip install requests python-dateutil
+Dependencies: requests
+Install: pip install requests
 
 === HOW TO RUN (inside Bastion pod) ===
 
@@ -28,10 +28,9 @@ import argparse
 import csv
 import os
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import requests
-from dateutil.relativedelta import relativedelta
 
 
 # ============================================================================
@@ -92,7 +91,7 @@ CSV_COLUMNS = [
 def get_month_range():
     """Return (start, end) datetime for past month."""
     end_dt = datetime.now(timezone.utc)
-    start_dt = end_dt - relativedelta(months=1)
+    start_dt = end_dt - timedelta(days=30)
     return start_dt, end_dt
 
 
