@@ -219,7 +219,7 @@ class TestAttributes(unittest.TestCase):
         )
 
     def test_invalid_attribute_keys_rejected(self):
-        for key in ["Result", "result.count", "1st", "", "has-dash", "a" * 65]:
+        for key in ["Result", "result.count", "1st", "", "has-dash", "a" * 65, "result_count\n"]:
             with self.subTest(key=key), self.assertRaises(ValidationError):
                 full_event(attributes={key: "x"})
 
@@ -250,7 +250,12 @@ class TestEventIdAndActorType(unittest.TestCase):
         self.assertNotIn("actor_type", event["labels"])
 
     def test_invalid_event_id_rejected(self):
-        for value in ["not-a-uuid", "0190C8E2-7B3A-7C4D-9E1F-2A3B4C5D6E7F", ""]:
+        for value in [
+            "not-a-uuid",
+            "0190C8E2-7B3A-7C4D-9E1F-2A3B4C5D6E7F",
+            "",
+            "0190c8e2-7b3a-7c4d-9e1f-2a3b4c5d6e7f\n",
+        ]:
             with self.subTest(value=value), self.assertRaises(ValidationError):
                 full_event(event_id=value)
 
@@ -275,6 +280,42 @@ class TestEventIdAndActorType(unittest.TestCase):
                 ("actor_type", "end_user"),
             },
         )
+
+
+class TestSearchQueryEscaping(unittest.TestCase):
+    def setUp(self):
+        os.environ["AUDIT_LOG_SIGNING_KEY"] = SIGNING_KEY
+        self.adapter = GrafanaLokiAdapter()
+
+    def test_invalid_search_event_id_rejected(self):
+        with self.assertRaises(ValidationError):
+            SearchQuery(event_id='missing" or actor_type="end_user')
+
+    def test_pipeline_value_cannot_inject_a_predicate(self):
+        query = self.adapter._generate_logql_query(
+            SearchQuery(organization_uuid="o", description='x" or action="deleted')
+        )
+        self.assertEqual(
+            query, '{organization_uuid="o"} | description="x\\" or action=\\"deleted"'
+        )
+
+    def test_label_value_cannot_inject_a_matcher(self):
+        query = self.adapter._generate_logql_query(
+            SearchQuery(organization_uuid='o", organization_uuid=~".+')
+        )
+        self.assertEqual(query, '{organization_uuid="o\\", organization_uuid=~\\".+"}')
+
+    def test_backslash_and_newline_escaped(self):
+        query = self.adapter._generate_logql_query(
+            SearchQuery(resource_name="C:\\temp\nnext")
+        )
+        self.assertEqual(query, '{} | resource_name="C:\\\\temp\\nnext"')
+
+    def test_plain_and_non_ascii_values_unchanged(self):
+        query = self.adapter._generate_logql_query(
+            SearchQuery(organization_uuid="org-1", actor_name="कृष्णा अग्रवाल")
+        )
+        self.assertEqual(query, '{organization_uuid="org-1"} | actor_name="कृष्णा अग्रवाल"')
 
 
 class TestNewEventId(unittest.TestCase):

@@ -23,10 +23,16 @@ ActorType = Literal[
 ATTRIBUTE_PREFIX = "attr_"
 MAX_ATTRIBUTES = 100
 MAX_ATTRIBUTE_KEY_LENGTH = 64
-ATTRIBUTE_KEY_PATTERN = re.compile(r"^[a-z][a-z0-9_]*$")
+ATTRIBUTE_KEY_PATTERN = re.compile(r"[a-z][a-z0-9_]*")
 EVENT_ID_PATTERN = re.compile(
-    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
 )
+
+
+def validate_event_id(value: Optional[str]) -> Optional[str]:
+    if value is not None and not EVENT_ID_PATTERN.fullmatch(value):
+        raise ValueError("event_id must be a lowercase canonical UUID string")
+    return value
 
 
 def new_event_id() -> str:
@@ -66,12 +72,7 @@ class AuditEvent(BaseModel):
     actor_type: Optional[ActorType] = None
     attributes: Optional[Dict[str, str]] = None
 
-    @field_validator("event_id")
-    @classmethod
-    def validate_event_id(cls, value: Optional[str]) -> Optional[str]:
-        if value is not None and not EVENT_ID_PATTERN.match(value):
-            raise ValueError("event_id must be a lowercase canonical UUID string")
-        return value
+    _validate_event_id = field_validator("event_id")(validate_event_id)
 
     @field_validator("attributes")
     @classmethod
@@ -83,9 +84,8 @@ class AuditEvent(BaseModel):
         if len(value) > MAX_ATTRIBUTES:
             raise ValueError(f"attributes accepts at most {MAX_ATTRIBUTES} keys")
         for key in value:
-            if len(key) > MAX_ATTRIBUTE_KEY_LENGTH or not ATTRIBUTE_KEY_PATTERN.match(
-                key
-            ):
+            too_long = len(key) > MAX_ATTRIBUTE_KEY_LENGTH
+            if too_long or not ATTRIBUTE_KEY_PATTERN.fullmatch(key):
                 raise ValueError(
                     f"attribute key {key!r} must match {ATTRIBUTE_KEY_PATTERN.pattern} "
                     f"and be at most {MAX_ATTRIBUTE_KEY_LENGTH} characters"
@@ -111,6 +111,8 @@ class SearchQuery(BaseModel):
     log_category: Optional[LogCategory] = None
     event_id: Optional[str] = None
     actor_type: Optional[ActorType] = None
+
+    _validate_event_id = field_validator("event_id")(validate_event_id)
 
     # Loki query_range parameters with validation
     # query: Optional[str] = None

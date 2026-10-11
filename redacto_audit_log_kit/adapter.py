@@ -29,6 +29,10 @@ from redacto_audit_log_kit.exceptions import (
 )
 
 
+def _logql_string(value) -> str:
+    return json.dumps(str(value), ensure_ascii=False)
+
+
 class AuditAdapter(ABC):
     @abstractmethod
     def report_event(self, event):
@@ -245,7 +249,7 @@ class GrafanaLokiAdapter(AuditAdapter):
         for field in self.label_fields | self.optional_label_fields:
             if field in query_dict:
                 value = query_dict.pop(field)
-                label_filters.append(f'{field}="{value}"')
+                label_filters.append(f"{field}={_logql_string(value)}")
 
         # Create label selector string
         if label_filters:
@@ -257,7 +261,7 @@ class GrafanaLokiAdapter(AuditAdapter):
         for field in self.pipeline_filter_fields:
             if field in query_dict:
                 value = query_dict[field]
-                pipeline_filters.append(f'{field}="{value}"')
+                pipeline_filters.append(f"{field}={_logql_string(value)}")
 
         # Construct pipeline string
         if pipeline_filters:
