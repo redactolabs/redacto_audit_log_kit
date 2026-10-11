@@ -15,6 +15,7 @@ from abc import ABC, abstractmethod
 from django.conf import settings
 
 from redacto_audit_log_kit.schema import (
+    ATTRIBUTE_PREFIX,
     SearchQuery,
     AuditEvent,
 )
@@ -59,6 +60,10 @@ class GrafanaLokiAdapter(AuditAdapter):
         "kb_id",
     }
 
+    optional_label_fields = {
+        "log_category",
+    }
+
     pipeline_filter_fields = {
         "source_ip",
         "resource_type",
@@ -69,6 +74,8 @@ class GrafanaLokiAdapter(AuditAdapter):
         "actor_uuid",
         "resource_name",
         "resource_uuid",
+        "event_id",
+        "actor_type",
     }
 
     non_logql_query_params = {
@@ -111,6 +118,12 @@ class GrafanaLokiAdapter(AuditAdapter):
             for field, value in audit_log_entry.model_dump().items():
                 if field in self.label_fields:
                     labels[field] = value
+                elif field in self.optional_label_fields:
+                    if value is not None:
+                        labels[field] = value
+                elif field == "attributes":
+                    for key, attribute_value in (value or {}).items():
+                        structured_metadata[ATTRIBUTE_PREFIX + key] = attribute_value
                 # event_signature is excluded because it's computed internally by the
                 # adapter and not part of the AuditEvent schema - callers never provide it
                 elif field not in {"description", "created", "event_signature"}:
@@ -229,7 +242,7 @@ class GrafanaLokiAdapter(AuditAdapter):
         pipeline_filters = []
 
         # Build label selector from label_fields
-        for field in self.label_fields:
+        for field in self.label_fields | self.optional_label_fields:
             if field in query_dict:
                 value = query_dict.pop(field)
                 label_filters.append(f'{field}="{value}"')

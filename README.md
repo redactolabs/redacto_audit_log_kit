@@ -171,6 +171,49 @@ if not is_valid:
     raise ValueError("Audit log integrity check failed")
 ```
 
+## 🏷️ Category, Attributes and Event IDs (0.2.0)
+
+Four optional fields on `AuditEvent`. All are additive: an event that sets none of them produces exactly the same labels, structured metadata, body and signature as 0.1.0.
+
+| Field | Type | Written to Loki as |
+|---|---|---|
+| `log_category` | `consent_lifecycle` \| `system_processing` \| `grievance_rights` | Stream **label**, only when set |
+| `attributes` | `dict[str, str]`, keys `^[a-z][a-z0-9_]*$`, max 64 chars, max 100 keys | Structured metadata, each key prefixed `attr_` |
+| `event_id` | lowercase canonical UUID (use `new_event_id()` for a UUIDv7) | Structured metadata |
+| `actor_type` | `human_user` \| `end_user` \| `service_account` \| `scheduled_job` \| `system` | Structured metadata |
+
+```python
+from redacto_audit_log_kit.schema import AuditEvent, new_event_id
+
+AuditEvent(
+    organization_uuid=org_uuid,
+    workspace_uuid=workspace_uuid,
+    service_name="consent",
+    action="accessed",
+    crud="r",
+    actor_name=actor_name,
+    actor_uuid=actor_uuid,
+    resource_type="user_consent",
+    resource_uuid=resource_uuid,
+    description="Accessed consent history",
+    log_category="grievance_rights",
+    event_id=new_event_id(),
+    actor_type="end_user",
+    attributes={"identifier_field": "org_user_id", "result_count": "3"},
+)
+```
+
+- Put extra detail in `attributes` instead of appending `key=value` text to `description`. Attribute values must be strings.
+- `log_category` is a label so Loki `retention_stream` rules can keep each DPDP category for its own period. Query it with `SearchQuery(log_category=...)`.
+- `event_id` gives every event a stable id for deduplication, including a later backfill from Loki into Postgres.
+- Every new field is covered by `event_signature`.
+
+### Upgrading
+
+1. Pin a tag instead of `branch = "main"`: `redacto-audit-log-kit = {git = "https://github.com/redactolabs/redacto_audit_log_kit", tag = "v0.2.0"}` and re-lock.
+2. Deploy the version bump on its own. No code change is needed and output is unchanged.
+3. Only after **every** worker that builds `AuditEvent` from a queued payload runs 0.2.0, start setting the new fields. A 0.1.0 worker silently drops unknown keys, so an event sent with the new fields during a mixed rollout would lose its category and attributes.
+
 ## 🏗️ Architecture
 
 The Redacto Audit Log Kit is designed with flexibility in mind, featuring a modular architecture:
