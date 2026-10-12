@@ -183,6 +183,7 @@ Four optional fields on `AuditEvent`. All are additive: an event that sets none 
 | `actor_type` | `human_user` \| `end_user` \| `service_account` \| `scheduled_job` \| `system` | Structured metadata |
 
 ```python
+from redacto_audit_log_kit.attributes import build_attributes
 from redacto_audit_log_kit.schema import AuditEvent, new_event_id
 
 AuditEvent(
@@ -199,13 +200,14 @@ AuditEvent(
     log_category="grievance_rights",
     event_id=new_event_id(),
     actor_type="end_user",
-    attributes={"identifier_field": "org_user_id", "result_count": "3"},
+    attributes=build_attributes({"identifier_field": "org_user_id", "result_count": 3}),
 )
 ```
 
-- Put extra detail in `attributes` instead of appending `key=value` text to `description`. Attribute values must be strings.
+- Put extra detail in `attributes` instead of appending `key=value` text to `description`, and build it with `build_attributes(extra_fields)` rather than by hand. It normalizes keys to `^[a-z][a-z0-9_]*$` (64 chars max), turns values into strings (`true`/`false`, compact JSON with sorted keys for lists and dicts, `str()` otherwise), drops `None`, truncates any value over 8 KB with `...[truncated N bytes]`, keeps the total under 48 KB and at most 100 keys, and lists anything it had to drop in `dropped_attributes` (or `N attributes` when the list itself is too long). `AuditEvent` rejects attributes over these caps, so a hand-built dict can't produce a line Loki refuses. The Go ledger applies the same rules.
+- Personal data is allowed in `description` and `attributes`. Audit logs are retained compliance evidence under the DPDP Act: they prove who did what to whose data, so they may name the data principal or the operator. They are never erased per data principal; rows leave Loki only through the per-category retention rules.
 - `log_category` is a label so Loki `retention_stream` rules can keep each DPDP category for its own period. Query it with `SearchQuery(log_category=...)`.
-- `event_id` gives every event a stable id for deduplication, including a later backfill from Loki into Postgres. Use a fresh UUIDv7 per request-driven action. For an event that happens at most once per resource and can be re-sent by a retried task or by another producer (consent granted/denied/expired, user linked/nominated), derive a UUIDv5 from a stable key instead, `uuid5(UUID("8b2f9a14-3c7d-4e6b-9a1f-2d3c4e5f6a7b"), "consent.event:<uuid>")`, which the Go ledger's `DeriveEventID` reproduces exactly. Validation accepts any UUID version, so don't extract a timestamp from the id.
+- `event_id` gives every event a stable id for deduplication, including a later backfill from Loki into Postgres. Use a fresh UUIDv7 per request-driven action. For an event that happens at most once per resource and can be re-sent by a retried task or by another producer (consent granted/denied/expired, user linked/nominated), derive a UUIDv5 from a stable key instead with `derive_event_id("consent.event:<uuid>")`, which the Go ledger's `DeriveEventID` reproduces exactly. Validation accepts any UUID version, so don't extract a timestamp from the id.
 - Every new field is covered by `event_signature`.
 
 ### Upgrading

@@ -23,6 +23,9 @@ ActorType = Literal[
 ATTRIBUTE_PREFIX = "attr_"
 MAX_ATTRIBUTES = 100
 MAX_ATTRIBUTE_KEY_LENGTH = 64
+MAX_ATTRIBUTE_VALUE_BYTES = 8192
+MAX_ATTRIBUTES_BYTES = 49152
+EVENT_ID_NAMESPACE = uuid.UUID("8b2f9a14-3c7d-4e6b-9a1f-2d3c4e5f6a7b")
 ATTRIBUTE_KEY_PATTERN = re.compile(r"[a-z][a-z0-9_]*")
 EVENT_ID_PATTERN = re.compile(
     r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
@@ -48,6 +51,10 @@ def new_event_id() -> str:
         | rand_b
     )
     return str(uuid.UUID(int=value))
+
+
+def derive_event_id(key: str) -> str:
+    return str(uuid.uuid5(EVENT_ID_NAMESPACE, key))
 
 
 class AuditEvent(BaseModel):
@@ -83,13 +90,26 @@ class AuditEvent(BaseModel):
             return value
         if len(value) > MAX_ATTRIBUTES:
             raise ValueError(f"attributes accepts at most {MAX_ATTRIBUTES} keys")
-        for key in value:
+        total = 0
+        for key, item in value.items():
             too_long = len(key) > MAX_ATTRIBUTE_KEY_LENGTH
             if too_long or not ATTRIBUTE_KEY_PATTERN.fullmatch(key):
                 raise ValueError(
                     f"attribute key {key!r} must match {ATTRIBUTE_KEY_PATTERN.pattern} "
                     f"and be at most {MAX_ATTRIBUTE_KEY_LENGTH} characters"
                 )
+            size = len(item.encode())
+            if size > MAX_ATTRIBUTE_VALUE_BYTES:
+                raise ValueError(
+                    f"attribute {key!r} is {size} bytes; values are capped at "
+                    f"{MAX_ATTRIBUTE_VALUE_BYTES} bytes (use build_attributes)"
+                )
+            total += len(ATTRIBUTE_PREFIX) + len(key) + size
+        if total > MAX_ATTRIBUTES_BYTES:
+            raise ValueError(
+                f"attributes total {total} bytes; capped at {MAX_ATTRIBUTES_BYTES} "
+                "bytes (use build_attributes)"
+            )
         return value
 
 
