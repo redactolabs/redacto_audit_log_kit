@@ -179,7 +179,7 @@ Four optional fields on `AuditEvent`. All are additive: an event that sets none 
 |---|---|---|
 | `log_category` | `consent_lifecycle` \| `system_processing` \| `grievance_rights` | Stream **label**, only when set |
 | `attributes` | `dict[str, str]`, keys `^[a-z][a-z0-9_]*$`, max 64 chars, max 100 keys | Structured metadata, each key prefixed `attr_` |
-| `event_id` | lowercase canonical UUID (use `new_event_id()` for a UUIDv7) | Structured metadata |
+| `event_id` | lowercase canonical UUID of any version: `new_event_id()` for a fresh UUIDv7, or a deterministic UUIDv5 for events that must deduplicate across retries or producers | Structured metadata |
 | `actor_type` | `human_user` \| `end_user` \| `service_account` \| `scheduled_job` \| `system` | Structured metadata |
 
 ```python
@@ -205,7 +205,7 @@ AuditEvent(
 
 - Put extra detail in `attributes` instead of appending `key=value` text to `description`. Attribute values must be strings.
 - `log_category` is a label so Loki `retention_stream` rules can keep each DPDP category for its own period. Query it with `SearchQuery(log_category=...)`.
-- `event_id` gives every event a stable id for deduplication, including a later backfill from Loki into Postgres.
+- `event_id` gives every event a stable id for deduplication, including a later backfill from Loki into Postgres. Use a fresh UUIDv7 per request-driven action. For an event that happens at most once per resource and can be re-sent by a retried task or by another producer (consent granted/denied/expired, user linked/nominated), derive a UUIDv5 from a stable key instead, `uuid5(UUID("8b2f9a14-3c7d-4e6b-9a1f-2d3c4e5f6a7b"), "consent.event:<uuid>")`, which the Go ledger's `DeriveEventID` reproduces exactly. Validation accepts any UUID version, so don't extract a timestamp from the id.
 - Every new field is covered by `event_signature`.
 
 ### Upgrading
