@@ -1,5 +1,8 @@
+import json
 import os
+import pathlib
 import unittest
+from datetime import datetime, timedelta, timezone
 
 from pydantic import ValidationError
 
@@ -18,6 +21,9 @@ from redacto_audit_log_kit.schema import (
     AuditEvent,
     derive_event_id,
 )
+
+
+GOLDEN_PATH = pathlib.Path(__file__).parent / "fixtures" / "attributes_golden.json"
 
 
 def attributes_bytes(attributes):
@@ -61,8 +67,52 @@ class BuildAttributesTests(unittest.TestCase):
         forward = build_attributes({"a.b": "first", "a_b": "second"})
         backward = build_attributes({"a_b": "second", "a.b": "first"})
 
-        self.assertEqual(forward, {"a_b": "second"})
+        self.assertEqual(forward, {"a_b": "second", DROPPED_ATTRIBUTES_KEY: "a.b"})
         self.assertEqual(backward, forward)
+
+    def test_failure_every_colliding_key_is_listed_as_dropped(self):
+        attributes = build_attributes(
+            {"a.b": "1", "a_b": "2", "A-B": "3", "y" * 70: "4", "y" * 64 + "z": "5"}
+        )
+
+        self.assertEqual(attributes["a_b"], "2")
+        self.assertEqual(attributes["y" * 64], "5")
+        self.assertEqual(attributes[DROPPED_ATTRIBUTES_KEY], "A-B,a.b," + "y" * 70)
+
+    def test_success_none_value_does_not_collide(self):
+        self.assertEqual(
+            build_attributes({"a.b": None, "a_b": "kept"}), {"a_b": "kept"}
+        )
+
+    def test_success_datetimes_and_non_finite_floats_render_like_str(self):
+        moment = datetime(2026, 10, 12, 10, 0, 0, 123456, tzinfo=timezone.utc)
+        ist = datetime(
+            2026, 10, 12, 10, 0, tzinfo=timezone(timedelta(hours=5, minutes=30))
+        )
+
+        self.assertEqual(
+            build_attributes(
+                {
+                    "at": moment,
+                    "ist": ist,
+                    "nan": float("nan"),
+                    "inf": float("inf"),
+                    "nested": [moment, float("nan"), float("-inf")],
+                }
+            ),
+            {
+                "at": "2026-10-12 10:00:00.123456+00:00",
+                "ist": "2026-10-12 10:00:00+05:30",
+                "nan": "nan",
+                "inf": "inf",
+                "nested": '["2026-10-12 10:00:00.123456+00:00",NaN,-Infinity]',
+            },
+        )
+
+    def test_success_every_golden_case_matches(self):
+        for case in json.loads(GOLDEN_PATH.read_text()):
+            with self.subTest(case=case["name"]):
+                self.assertEqual(build_attributes(case["input"]), case["output"])
 
     def test_success_non_ascii_json_is_kept_readable(self):
         self.assertEqual(attribute_value({"name": "गोपनीयता"}), '{"name":"गोपनीयता"}')

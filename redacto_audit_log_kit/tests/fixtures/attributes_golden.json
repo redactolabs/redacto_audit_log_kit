@@ -1,0 +1,182 @@
+[
+  {
+    "name": "scalars",
+    "input": {
+      "count": 326,
+      "zero": 0,
+      "negative": -5,
+      "flag_on": true,
+      "flag_off": false,
+      "missing": null,
+      "empty": "",
+      "text": "plain"
+    },
+    "output": {
+      "count": "326",
+      "empty": "",
+      "flag_off": "false",
+      "flag_on": "true",
+      "negative": "-5",
+      "text": "plain",
+      "zero": "0"
+    }
+  },
+  {
+    "name": "floats",
+    "input": {
+      "one": 1.0,
+      "tenth": 0.1,
+      "half": 0.5,
+      "neg": -2.5,
+      "e_minus_4": 0.0001,
+      "e_minus_5": 1e-05,
+      "tiny": 1e-07,
+      "e15": 1000000000000000.0,
+      "e16": 1e+16,
+      "huge": 1.5e+300,
+      "third": 0.3333333333333333
+    },
+    "output": {
+      "e15": "1000000000000000.0",
+      "e16": "1e+16",
+      "e_minus_4": "0.0001",
+      "e_minus_5": "1e-05",
+      "half": "0.5",
+      "huge": "1.5e+300",
+      "neg": "-2.5",
+      "one": "1.0",
+      "tenth": "0.1",
+      "third": "0.3333333333333333",
+      "tiny": "1e-07"
+    }
+  },
+  {
+    "name": "strings",
+    "input": {
+      "devanagari": "गोपनीयता",
+      "emoji": "✅🙂",
+      "line_separator": "a b c",
+      "html": "<b>&amp;</b>",
+      "quotes": "say \"hi\" \\ back",
+      "newline": "a\nb\tc\r",
+      "control": "a\u0001\u001fb"
+    },
+    "output": {
+      "control": "a\u0001\u001fb",
+      "devanagari": "गोपनीयता",
+      "emoji": "✅🙂",
+      "html": "<b>&amp;</b>",
+      "line_separator": "a b c",
+      "newline": "a\nb\tc\r",
+      "quotes": "say \"hi\" \\ back"
+    }
+  },
+  {
+    "name": "containers",
+    "input": {
+      "list": [
+        1,
+        1.0,
+        "a",
+        true,
+        false,
+        null,
+        {
+          "b": 2,
+          "a": 1
+        }
+      ],
+      "nested_floats": {
+        "z": 1.0,
+        "a": [
+          0.1,
+          1e+16,
+          1e-07,
+          -0.0
+        ]
+      },
+      "nested_strings": {
+        "sep": "a b",
+        "html": "<x>&",
+        "quote": "q\"\\",
+        "ctrl": "\n\t\r\b\f\u0001\u001f",
+        "unicode": "गोपनीयता🙂"
+      },
+      "empty_list": [],
+      "empty_dict": {},
+      "deep": {
+        "b": {
+          "d": [
+            {
+              "y": 2,
+              "x": 1
+            }
+          ],
+          "c": null
+        },
+        "a": true
+      }
+    },
+    "output": {
+      "deep": "{\"a\":true,\"b\":{\"c\":null,\"d\":[{\"x\":1,\"y\":2}]}}",
+      "empty_dict": "{}",
+      "empty_list": "[]",
+      "list": "[1,1.0,\"a\",true,false,null,{\"a\":1,\"b\":2}]",
+      "nested_floats": "{\"a\":[0.1,1e+16,1e-07,-0.0],\"z\":1.0}",
+      "nested_strings": "{\"ctrl\":\"\\n\\t\\r\\b\\f\\u0001\\u001f\",\"html\":\"<x>&\",\"quote\":\"q\\\"\\\\\",\"sep\":\"a b\",\"unicode\":\"गोपनीयता🙂\"}"
+    }
+  },
+  {
+    "name": "keys",
+    "input": {
+      "consent.notice_uuid": "a",
+      "Result.Count": "b",
+      "1st": "c",
+      "has-dash": "d",
+      "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx": "e",
+      "_lead": "f",
+      "UPPER": "g",
+      "sp ace": "h"
+    },
+    "output": {
+      "consent_notice_uuid": "a",
+      "has_dash": "d",
+      "k_1st": "c",
+      "k__lead": "f",
+      "result_count": "b",
+      "sp_ace": "h",
+      "upper": "g",
+      "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx": "e"
+    }
+  },
+  {
+    "name": "collisions",
+    "input": {
+      "a.b": "1",
+      "a_b": "2",
+      "A-B": "3",
+      "yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy_one": "4",
+      "yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy_two": "5"
+    },
+    "output": {
+      "a_b": "2",
+      "yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy": "5",
+      "dropped_attributes": "A-B,a.b,yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy_one"
+    }
+  },
+  {
+    "name": "collision_with_none",
+    "input": {
+      "a.b": null,
+      "a_b": "kept"
+    },
+    "output": {
+      "a_b": "kept"
+    }
+  },
+  {
+    "name": "empty",
+    "input": {},
+    "output": {}
+  }
+]

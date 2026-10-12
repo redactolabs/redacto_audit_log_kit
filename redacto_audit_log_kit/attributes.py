@@ -47,7 +47,9 @@ def truncate_attribute_value(value: str) -> str:
 
 def dropped_report(dropped: List[str]) -> str:
     report = ",".join(dropped)
-    room = MAX_DROPPED_REPORT_BYTES - len(ATTRIBUTE_PREFIX) - len(DROPPED_ATTRIBUTES_KEY)
+    room = (
+        MAX_DROPPED_REPORT_BYTES - len(ATTRIBUTE_PREFIX) - len(DROPPED_ATTRIBUTES_KEY)
+    )
     if len(report.encode()) <= room:
         return report
     return f"{len(dropped)} attributes"
@@ -55,15 +57,18 @@ def dropped_report(dropped: List[str]) -> str:
 
 def build_attributes(extra_fields: Optional[Mapping[Any, Any]]) -> Dict[str, str]:
     candidates: Dict[str, str] = {}
+    sources: Dict[str, str] = {}
+    dropped: List[str] = []
     for raw_key in sorted(extra_fields or {}, key=str):
         value = extra_fields[raw_key]
         if value is None:
             continue
-        candidates[attribute_key(raw_key)] = truncate_attribute_value(
-            attribute_value(value)
-        )
+        key = attribute_key(raw_key)
+        if key in sources:
+            dropped.append(sources[key])
+        sources[key] = str(raw_key)
+        candidates[key] = truncate_attribute_value(attribute_value(value))
     attributes: Dict[str, str] = {}
-    dropped: List[str] = []
     used = 0
     for key in sorted(candidates):
         value = candidates[key]
