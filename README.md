@@ -171,6 +171,51 @@ if not is_valid:
     raise ValueError("Audit log integrity check failed")
 ```
 
+## 🏷️ Category, Attributes and Event IDs (0.2.0)
+
+Four optional fields on `AuditEvent`. All are additive: an event that sets none of them produces exactly the same labels, structured metadata, body and signature as `main` before 0.2.0 (see Upgrading for services locked to an older commit).
+
+| Field | Type | Written to Loki as |
+|---|---|---|
+| `log_category` | `consent_lifecycle` \| `system_processing` \| `grievance_rights` | Stream **label**, only when set |
+| `attributes` | `dict[str, str]`, keys `^[a-z][a-z0-9_]*$`, max 64 chars, max 100 keys | Structured metadata, each key prefixed `attr_` |
+| `event_id` | lowercase canonical UUID of any version: `new_event_id()` for a fresh UUIDv7, or a deterministic UUIDv5 for events that must deduplicate across retries or producers | Structured metadata |
+| `actor_type` | `human_user` \| `end_user` \| `service_account` \| `scheduled_job` \| `system` | Structured metadata |
+
+```python
+from redacto_audit_log_kit.attributes import build_attributes
+from redacto_audit_log_kit.schema import AuditEvent, new_event_id
+
+AuditEvent(
+    organization_uuid=org_uuid,
+    workspace_uuid=workspace_uuid,
+    service_name="consent",
+    action="accessed",
+    crud="r",
+    actor_name=actor_name,
+    actor_uuid=actor_uuid,
+    resource_type="user_consent",
+    resource_uuid=resource_uuid,
+    description="Accessed consent history",
+    log_category="grievance_rights",
+    event_id=new_event_id(),
+    actor_type="end_user",
+    attributes=build_attributes({"identifier_field": "org_user_id", "result_count": 3}),
+)
+```
+
+- Put extra detail in `attributes` instead of appending `key=value` text to `description`, and build it with `build_attributes(extra_fields)` rather than by hand. It normalizes keys to `^[a-z][a-z0-9_]*$` (64 chars max), turns values into strings (`true`/`false`, compact JSON with sorted keys for lists and dicts, `str()` otherwise), drops `None`, truncates any value over 8 KB with `...[truncated N bytes]`, keeps the total under 48 KB and at most 100 keys, and lists anything it had to drop in `dropped_attributes` (or `N attributes` when the list itself is too long). When two keys normalize to the same name, the later key in sorted order wins and the other raw key is listed in `dropped_attributes`. `AuditEvent` rejects attributes over these caps, so a hand-built dict can't produce a line Loki refuses. The Go ledger applies the same rules: `redacto_audit_log_kit/tests/fixtures/attributes_golden.json` holds input/output pairs that this package's tests and the ledger's tests (from a byte-identical copy) both assert.
+- Personal data is allowed in `description` and `attributes`. Audit logs are the evidence a Data Fiduciary keeps to show compliance with the DPDP Act: they prove who did what to whose data, so they may name the data principal or the operator. The Act allows personal data to be kept after consent is withdrawn or erasure is requested when retention is necessary for the specified purpose or for compliance with law (sections 8(7) and 12(3)), so an erasure request does not delete these rows. They leave Loki only through the per-category retention rules, which set how long each category is kept.
+- `log_category` is a label so Loki `retention_stream` rules can keep each DPDP category for its own period. Query it with `SearchQuery(log_category=...)`.
+- `event_id` gives every event a stable id for deduplication, including a later backfill from Loki into Postgres. Use a fresh UUIDv7 per request-driven action. For an event that happens at most once per resource and can be re-sent by a retried task or by another producer (consent granted/denied/expired, user linked/nominated), derive a UUIDv5 from a stable key instead with `derive_event_id("consent.event:<uuid>")`, which the Go ledger's `DeriveEventID` reproduces exactly. Validation accepts any UUID version, so don't extract a timestamp from the id. Set `created` in the same place you set `event_id` (the web process, before queueing): if `created` is left for the worker to fill, a retried push gets a new timestamp and Loki can't collapse the duplicate line.
+- Every new field is covered by `event_signature`.
+
+### Upgrading
+
+1. Pin a tag instead of `branch = "main"`: `redacto-audit-log-kit = {git = "https://github.com/redactolabs/redacto_audit_log_kit", tag = "v0.2.0"}` and re-lock.
+2. Deploy the version bump on its own. No code change is needed and output is unchanged, unless the service's lock points at a kit commit from before April 2026 (`fb2dba8`, when `kb_id` became a label). Such a service also picks up the `kb_id` label with this bump: every event then carries `kb_id` in its signed labels (`null` when unset), so the same event signs differently before and after the bump. Verify a row against the labels stored with it, not against a fixed label list.
+3. Only after **every** worker that builds `AuditEvent` from a queued payload runs 0.2.0, start setting the new fields. A 0.1.0 worker silently drops unknown keys, so an event sent with the new fields during a mixed rollout would lose its category and attributes.
+
 ## 🏗️ Architecture
 
 The Redacto Audit Log Kit is designed with flexibility in mind, featuring a modular architecture:

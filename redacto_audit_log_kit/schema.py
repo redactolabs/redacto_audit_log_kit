@@ -1,15 +1,60 @@
 # Structured audit event schema for logging
+import os
+import re
+import time
+import uuid
 from datetime import datetime
 
 # Model for audit log entry
-from typing import Dict, Any, Optional
-from pydantic import BaseModel, Field
+from typing import Dict, Any, Literal, Optional
+from pydantic import BaseModel, Field, field_validator
 
 # Validation constants for Loki query parameters
 MAX_LIMIT = 1000
 MIN_LIMIT = 1
 MAX_TIMESTAMP_NS = 2**63 - 1  # int64 max ns, ~2262-04-11 UTC
 MIN_TIMESTAMP_NS = 0
+
+LogCategory = Literal["consent_lifecycle", "system_processing", "grievance_rights"]
+ActorType = Literal[
+    "human_user", "end_user", "service_account", "scheduled_job", "system"
+]
+
+ATTRIBUTE_PREFIX = "attr_"
+MAX_ATTRIBUTES = 100
+MAX_ATTRIBUTE_KEY_LENGTH = 64
+MAX_ATTRIBUTE_VALUE_BYTES = 8192
+MAX_ATTRIBUTES_BYTES = 49152
+EVENT_ID_NAMESPACE = uuid.UUID("8b2f9a14-3c7d-4e6b-9a1f-2d3c4e5f6a7b")
+ATTRIBUTE_KEY_PATTERN = re.compile(r"[a-z][a-z0-9_]*")
+EVENT_ID_PATTERN = re.compile(
+    r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
+)
+
+
+def validate_event_id(value: Optional[str]) -> Optional[str]:
+    if value is not None and not EVENT_ID_PATTERN.fullmatch(value):
+        raise ValueError("event_id must be a lowercase canonical UUID string")
+    return value
+
+
+def new_event_id() -> str:
+    unix_ms = time.time_ns() // 1_000_000
+    random_bits = int.from_bytes(os.urandom(10), "big")
+    rand_a = (random_bits >> 68) & 0xFFF
+    rand_b = random_bits & ((1 << 62) - 1)
+    value = (
+        (unix_ms & ((1 << 48) - 1)) << 80
+        | 0x7 << 76
+        | rand_a << 64
+        | 0b10 << 62
+        | rand_b
+    )
+    return str(uuid.UUID(int=value))
+
+
+def derive_event_id(key: str) -> str:
+    return str(uuid.uuid5(EVENT_ID_NAMESPACE, key))
 
 
 class AuditEvent(BaseModel):
@@ -29,6 +74,43 @@ class AuditEvent(BaseModel):
     description: Optional[str] = None
     created: Optional[int] = None  # Unix epoch ns
     # Optionally add more fields as needed
+    log_category: Optional[LogCategory] = None
+    event_id: Optional[str] = None
+    actor_type: Optional[ActorType] = None
+    attributes: Optional[Dict[str, str]] = None
+
+    _validate_event_id = field_validator("event_id")(validate_event_id)
+
+    @field_validator("attributes")
+    @classmethod
+    def validate_attributes(
+        cls, value: Optional[Dict[str, str]]
+    ) -> Optional[Dict[str, str]]:
+        if value is None:
+            return value
+        if len(value) > MAX_ATTRIBUTES:
+            raise ValueError(f"attributes accepts at most {MAX_ATTRIBUTES} keys")
+        total = 0
+        for key, item in value.items():
+            too_long = len(key) > MAX_ATTRIBUTE_KEY_LENGTH
+            if too_long or not ATTRIBUTE_KEY_PATTERN.fullmatch(key):
+                raise ValueError(
+                    f"attribute key {key!r} must match {ATTRIBUTE_KEY_PATTERN.pattern} "
+                    f"and be at most {MAX_ATTRIBUTE_KEY_LENGTH} characters"
+                )
+            size = len(item.encode())
+            if size > MAX_ATTRIBUTE_VALUE_BYTES:
+                raise ValueError(
+                    f"attribute {key!r} is {size} bytes; values are capped at "
+                    f"{MAX_ATTRIBUTE_VALUE_BYTES} bytes (use build_attributes)"
+                )
+            total += len(ATTRIBUTE_PREFIX) + len(key) + size
+        if total > MAX_ATTRIBUTES_BYTES:
+            raise ValueError(
+                f"attributes total {total} bytes; capped at {MAX_ATTRIBUTES_BYTES} "
+                "bytes (use build_attributes)"
+            )
+        return value
 
 
 class SearchQuery(BaseModel):
@@ -46,6 +128,11 @@ class SearchQuery(BaseModel):
     crud: Optional[str] = None  # label
     source_ip: Optional[str] = None
     description: Optional[str] = None
+    log_category: Optional[LogCategory] = None
+    event_id: Optional[str] = None
+    actor_type: Optional[ActorType] = None
+
+    _validate_event_id = field_validator("event_id")(validate_event_id)
 
     # Loki query_range parameters with validation
     # query: Optional[str] = None
