@@ -20,11 +20,15 @@ A unified audit logging solution for all Redacto services. This package provides
 
 1. **Add to your project's `pyproject.toml`**:
 
+<!-- x-release-please-start-version -->
 ```toml
 [tool.poetry.dependencies]
 # Your other dependencies
-redacto-audit-log-kit = {git = "git@github.com:redactolabs/redacto_audit_log_kit.git"}
+redacto-audit-log-kit = {git = "git@github.com:redactolabs/redacto_audit_log_kit.git", tag = "v0.2.0"}
 ```
+<!-- x-release-please-end -->
+
+Always pin a release tag. With no tag (or `branch = "main"`), `poetry.lock` still freezes whatever commit was current at lock time, so the service silently stays on that commit until someone re-locks.
 
 2. **Configure SSH for GitHub access**:
 
@@ -215,6 +219,15 @@ AuditEvent(
 1. Pin a tag instead of `branch = "main"`: `redacto-audit-log-kit = {git = "https://github.com/redactolabs/redacto_audit_log_kit", tag = "v0.2.0"}` and re-lock.
 2. Deploy the version bump on its own. No code change is needed and output is unchanged, unless the service's lock points at a kit commit from before April 2026 (`fb2dba8`, when `kb_id` became a label). Such a service also picks up the `kb_id` label with this bump: every event then carries `kb_id` in its signed labels (`null` when unset), so the same event signs differently before and after the bump. Verify a row against the labels stored with it, not against a fixed label list.
 3. Only after **every** worker that builds `AuditEvent` from a queued payload runs 0.2.0, start setting the new fields. A 0.1.0 worker silently drops unknown keys, so an event sent with the new fields during a mixed rollout would lose its category and attributes.
+
+## 🏷️ Releasing
+
+Releases are cut by [release-please](https://github.com/googleapis/release-please) (`.github/workflows/release-please.yml`), the same setup as `redacto-llm`:
+
+1. Every commit that lands on `main` needs a [conventional commit](https://www.conventionalcommits.org/) message. `feat:` bumps the minor version and `fix:` the patch version; `docs:`, `chore:`, `ci:`, `test:` and `refactor:` don't cut a release. release-please reads commit messages, not PR titles: with a merge commit it reads each commit on the branch (the `Merge pull request …` commit itself is skipped), and with a squash merge it reads the squash commit, which GitHub titles from the PR when the PR has more than one commit. The `conventional-commits` check fails a PR whose title or any commit message doesn't follow the format, so a `feat:` PR made of commits named `Enhancements` can't merge and then never release.
+2. On every push to `main`, release-please keeps one release PR open that bumps the version in `pyproject.toml`, the install snippet above and `CHANGELOG.md`.
+3. Merging that PR creates the tag `vX.Y.Z` and a GitHub Release. The tag is the artifact; nothing is published to a package index.
+4. Services don't pick a release up on their own. Each one moves its pin to the new tag, re-locks with the Poetry version in its `poetry.lock` header, and ships the bump with its next deploy.
 
 ## 🏗️ Architecture
 
