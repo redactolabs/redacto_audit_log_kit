@@ -224,7 +224,7 @@ AuditEvent(
 
 Releases are cut by [release-please](https://github.com/googleapis/release-please) (`.github/workflows/release-please.yml`), the same setup as `redacto-llm`:
 
-1. Merge PRs into `main` with [conventional commit](https://www.conventionalcommits.org/) titles. `feat:` bumps the minor version and `fix:` the patch version; `docs:`, `chore:`, `ci:` and `test:` don't cut a release.
+1. Every commit that lands on `main` needs a [conventional commit](https://www.conventionalcommits.org/) message. `feat:` bumps the minor version and `fix:` the patch version; `docs:`, `chore:`, `ci:`, `test:` and `refactor:` don't cut a release. release-please reads commit messages, not PR titles: with a merge commit it reads each commit on the branch (the `Merge pull request …` commit itself is skipped), and with a squash merge it reads the squash commit, which GitHub titles from the PR when the PR has more than one commit. The `conventional-commits` check fails a PR whose title or any commit message doesn't follow the format, so a `feat:` PR made of commits named `Enhancements` can't merge and then never release.
 2. On every push to `main`, release-please keeps one release PR open that bumps the version in `pyproject.toml`, the install snippet above and `CHANGELOG.md`.
 3. Merging that PR creates the tag `vX.Y.Z` and a GitHub Release. The tag is the artifact; nothing is published to a package index.
 4. Services don't pick a release up on their own. Each one moves its pin to the new tag, re-locks with the Poetry version in its `poetry.lock` header, and ships the bump with its next deploy.
