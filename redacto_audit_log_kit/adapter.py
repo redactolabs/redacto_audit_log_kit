@@ -28,9 +28,12 @@ from redacto_audit_log_kit.exceptions import (
     AuditKitEventProcessingError,
 )
 
-# Seconds. Matches the Go ledger's Loki client and audit-server's write timeout; a hung
-# backend otherwise holds the Dramatiq worker until its time limit kills it.
-HTTP_TIMEOUT_SECONDS = 10
+# Matches the Go ledger's Loki client and audit-server's write timeout; a hung backend
+# otherwise holds the Dramatiq worker until its time limit kills it.
+PUSH_TIMEOUT_SECONDS = 10
+# Loki's HTTP server cuts a response at its default 30s write timeout, so a long-range
+# query_range can take that long and waiting longer gains nothing.
+QUERY_TIMEOUT_SECONDS = 30
 
 
 def _logql_string(value) -> str:
@@ -196,7 +199,7 @@ class GrafanaLokiAdapter(AuditAdapter):
                 push_events_endpoint,
                 json=payload,
                 headers=headers,
-                timeout=HTTP_TIMEOUT_SECONDS,
+                timeout=PUSH_TIMEOUT_SECONDS,
             )
             if response.status_code not in [200, 204]:
                 # logger.error(f"Loki error: {response.status_code}, {response.text}")
@@ -354,7 +357,7 @@ class GrafanaLokiAdapter(AuditAdapter):
                 get_events_endpoint,
                 headers=headers,
                 params=params,
-                timeout=HTTP_TIMEOUT_SECONDS,
+                timeout=QUERY_TIMEOUT_SECONDS,
             )
             if response.status_code != 200:
                 raise AuditKitExternalServiceError(

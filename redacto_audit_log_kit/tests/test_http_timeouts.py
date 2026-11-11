@@ -67,6 +67,20 @@ class TestHttpTimeouts(unittest.TestCase):
 
         self.assertGreater(get.call_args.kwargs.get("timeout") or 0, 0)
 
+    def test_query_waits_longer_than_a_push(self):
+        with mock.patch(
+            "redacto_audit_log_kit.adapter.requests.post",
+            return_value=ok_response(204),
+        ) as post, mock.patch(
+            "redacto_audit_log_kit.adapter.requests.get",
+            return_value=ok_response(200, {"status": "success"}),
+        ) as get:
+            self.adapter.report_event(defined_event())
+            self.adapter.get_events(SearchQuery(organization_uuid="org-1"))
+
+        self.assertEqual(get.call_args.kwargs["timeout"], 30)
+        self.assertEqual(post.call_args.kwargs["timeout"], 10)
+
     def test_query_does_not_print_the_base_url_credentials(self):
         stdout = io.StringIO()
         with mock.patch(
