@@ -72,7 +72,9 @@ class AuditEvent(BaseModel):
     resource_uuid: Optional[str] = None
     resource_type: Optional[str] = None
     description: Optional[str] = None
-    created: Optional[int] = None  # Unix epoch ns
+    # Unix epoch ns, stamped when the event is built rather than at each send attempt, so a retried
+    # push carries the same timestamp and signature and the audit backend stores it once.
+    created: Optional[int] = Field(default=None, validate_default=True)
     # Optionally add more fields as needed
     log_category: Optional[LogCategory] = None
     event_id: Optional[str] = None
@@ -80,6 +82,11 @@ class AuditEvent(BaseModel):
     attributes: Optional[Dict[str, str]] = None
 
     _validate_event_id = field_validator("event_id")(validate_event_id)
+
+    @field_validator("created", mode="before")
+    @classmethod
+    def stamp_created(cls, value):
+        return time.time_ns() if value is None else value
 
     @field_validator("attributes")
     @classmethod
