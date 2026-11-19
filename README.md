@@ -220,6 +220,14 @@ AuditEvent(
 2. Deploy the version bump on its own. No code change is needed and output is unchanged, unless the service's lock points at a kit commit from before April 2026 (`fb2dba8`, when `kb_id` became a label). Such a service also picks up the `kb_id` label with this bump: every event then carries `kb_id` in its signed labels (`null` when unset), so the same event signs differently before and after the bump. Verify a row against the labels stored with it, not against a fixed label list.
 3. Only after **every** worker that builds `AuditEvent` from a queued payload runs 0.2.0, start setting the new fields. A 0.1.0 worker silently drops unknown keys, so an event sent with the new fields during a mixed rollout would lose its category and attributes.
 
+## 🗄️ Dual write to audit-server
+
+Set `AUDIT_SERVER_BASE_URL` to also send every pushed event to audit-server, e.g. `http://<client-id>:<client-secret>@audit-server:8080/audit`. The credentials are the service's audit-server client, sent as HTTP Basic auth.
+
+- Unset, the kit writes to Loki only, as before.
+- Set, an event is sent only when both Loki and audit-server accept it. If either fails, `report_event` raises and the caller's retry sends it to both again; each drops the repeat.
+- Reads (`get_events`) still go to Loki.
+
 ## 🏷️ Releasing
 
 Releases are cut by [release-please](https://github.com/googleapis/release-please) (`.github/workflows/release-please.yml`), the same setup as `redacto-llm`:

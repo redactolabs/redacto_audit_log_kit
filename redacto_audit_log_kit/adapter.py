@@ -207,6 +207,23 @@ class GrafanaLokiAdapter(AuditAdapter):
                     response.status_code, f"Loki returned: {response.text}"
                 )
 
+            # Dual write: once audit-server is configured, an event counts as sent only when
+            # both stores accept it, so a failure here raises and the caller's retry re-sends
+            # to both. Loki and audit-server each drop the repeat.
+            audit_server_base_url = os.getenv("AUDIT_SERVER_BASE_URL")
+            if audit_server_base_url:
+                audit_response = requests.post(
+                    audit_server_base_url + "/loki/api/v1/push",
+                    json=payload,
+                    headers=headers,
+                    timeout=PUSH_TIMEOUT_SECONDS,
+                )
+                if audit_response.status_code not in [200, 204]:
+                    raise AuditKitExternalServiceError(
+                        audit_response.status_code,
+                        f"audit-server returned: {audit_response.text}",
+                    )
+
             return {
                 "status": "success",
                 "status_code": response.status_code,
