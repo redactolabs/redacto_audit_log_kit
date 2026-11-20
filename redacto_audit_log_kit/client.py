@@ -33,7 +33,13 @@ class AuditClient:
             for other in errors[1:]:
                 errors[0].add_note(f"also failed: {other}")
             raise errors[0]
-        return results[0]
+        if len(results) == 1:
+            return results[0]
+        return {
+            "status": "success",
+            "message": "Event reported to every store",
+            "stores": {type(a).__name__: r for a, r in zip(self.adapters, results)},
+        }
 
     def define_event(self, *args, **kwargs):
         return self.reader.define_event(*args, **kwargs)

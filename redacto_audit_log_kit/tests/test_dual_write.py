@@ -155,6 +155,17 @@ class TestDualWriteClient(AdapterTestCase):
         self.assertEqual((loki.args[0], audit.args[0]), (LOKI_PUSH, AUDIT_SERVER_PUSH))
         self.assertEqual(audit.kwargs["json"], loki.kwargs["json"])
 
+    def test_the_result_reports_every_store(self):
+        self.patch("post", response(204), response(200))
+
+        result = AuditClient().log(an_event())
+
+        self.assertEqual(result["status"], "success")
+        self.assertEqual(
+            {name: r["status_code"] for name, r in result["stores"].items()},
+            {"GrafanaLokiAdapter": 204, "AuditServerAdapter": 200},
+        )
+
     def test_an_audit_server_rejection_raises_for_the_caller_to_retry(self):
         self.patch("post", response(204), response(503, "unavailable"))
 
