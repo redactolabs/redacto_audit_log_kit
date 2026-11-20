@@ -63,6 +63,9 @@ class AuditAdapter(ABC):
 
 
 class GrafanaLokiAdapter(AuditAdapter):
+    base_url_env = "LOKI_BASE_URL"
+    backend_name = "Loki"
+
     label_fields = {
         "organization_uuid",
         "workspace_uuid",
@@ -175,9 +178,9 @@ class GrafanaLokiAdapter(AuditAdapter):
         try:
             # loki_base_url = os.getenv('LOKI_BASE_URL', 'http://localhost:3100')
             # loki_base_url = os.getenv('LOKI_BASE_URL', 'http://host.docker.internal:3100')
-            loki_base_url = os.getenv("LOKI_BASE_URL")
+            loki_base_url = os.getenv(self.base_url_env)
             if not loki_base_url:
-                raise AuditKitConfigurationError("LOKI_BASE_URL is not set.")
+                raise AuditKitConfigurationError(f"{self.base_url_env} is not set.")
             push_events_endpoint = loki_base_url + "/loki/api/v1/push"
 
             headers = {
@@ -204,25 +207,8 @@ class GrafanaLokiAdapter(AuditAdapter):
             if response.status_code not in [200, 204]:
                 # logger.error(f"Loki error: {response.status_code}, {response.text}")
                 raise AuditKitExternalServiceError(
-                    response.status_code, f"Loki returned: {response.text}"
+                    response.status_code, f"{self.backend_name} returned: {response.text}"
                 )
-
-            # Dual write: once audit-server is configured, an event counts as sent only when
-            # both stores accept it, so a failure here raises and the caller's retry re-sends
-            # to both. Loki and audit-server each drop the repeat.
-            audit_server_base_url = os.getenv("AUDIT_SERVER_BASE_URL")
-            if audit_server_base_url:
-                audit_response = requests.post(
-                    audit_server_base_url + "/loki/api/v1/push",
-                    json=payload,
-                    headers=headers,
-                    timeout=PUSH_TIMEOUT_SECONDS,
-                )
-                if audit_response.status_code not in [200, 204]:
-                    raise AuditKitExternalServiceError(
-                        audit_response.status_code,
-                        f"audit-server returned: {audit_response.text}",
-                    )
 
             return {
                 "status": "success",
@@ -362,9 +348,9 @@ class GrafanaLokiAdapter(AuditAdapter):
             params = self.generate_search_query(search_query)
 
             # loki_base_url = os.getenv('LOKI_BASE_URL', 'http://host.docker.internal:3100')
-            loki_base_url = os.getenv("LOKI_BASE_URL")
+            loki_base_url = os.getenv(self.base_url_env)
             if not loki_base_url:
-                raise AuditKitConfigurationError("LOKI_BASE_URL is not set.")
+                raise AuditKitConfigurationError(f"{self.base_url_env} is not set.")
             get_events_endpoint = loki_base_url + "/loki/api/v1/query_range"
 
             headers = {
@@ -378,7 +364,7 @@ class GrafanaLokiAdapter(AuditAdapter):
             )
             if response.status_code != 200:
                 raise AuditKitExternalServiceError(
-                    response.status_code, f"Loki returned: {response.text}"
+                    response.status_code, f"{self.backend_name} returned: {response.text}"
                 )
             return response.json()
 
@@ -394,6 +380,81 @@ class GrafanaLokiAdapter(AuditAdapter):
             raise AuditKitConnectionError(f"get_events network error: {e}")
         except Exception as e:
             raise AuditKitEventProcessingError(f"get_events unexpected error: {e}")
+
+
+class AuditServerAdapter(GrafanaLokiAdapter):
+    """
+    Writes and reads audit-server, which serves Loki's push and query_range API under
+    its /audit base path. Configure AUDIT_SERVER_BASE_URL with the service's client
+    credentials as userinfo, e.g. http://<client-id>:<client-secret>@audit-server:8080/audit;
+    requests sends them as HTTP Basic auth.
+    """
+
+    base_url_env = "AUDIT_SERVER_BASE_URL"
+    backend_name = "audit-server"
+
+
+class DualWriteAdapter(AuditAdapter):
+    """
+    Sends every event to a primary and a secondary adapter, e.g.
+    DualWriteAdapter(GrafanaLokiAdapter(), AuditServerAdapter()).
+
+    The event is defined once, so both stores receive the same timestamp and
+    signature and each drops a retried repeat. The primary is written first; an event
+    counts as sent only when both accept it, so either failure raises and the caller's
+    retry sends it to both again. Reads go to the primary.
+    """
+
+    def __init__(self, primary: AuditAdapter, secondary: AuditAdapter):
+        self.primary = primary
+        self.secondary = secondary
+
+    def define_event(self, audit_log_entry: AuditEvent):
+        return self.primary.define_event(audit_log_entry)
+
+    def report_event(self, defined_event_dict: dict):
+        result = self.primary.report_event(defined_event_dict)
+        self.secondary.report_event(defined_event_dict)
+        return result
+
+    def log(self, audit_log_entry: AuditEvent):
+        return self.report_event(self.define_event(audit_log_entry))
+
+    def generate_search_query(self, search_query: SearchQuery):
+        return self.primary.generate_search_query(search_query)
+
+    def get_events(self, search_query: SearchQuery):
+        return self.primary.get_events(search_query)
+
+
+AUDIT_LOG_BACKEND_ENV = "AUDIT_LOG_BACKEND"
+AUDIT_LOG_BACKEND_LOKI = "loki"
+AUDIT_LOG_BACKEND_DUAL = "dual"
+AUDIT_LOG_BACKEND_AUDIT_SERVER = "audit_server"
+
+
+def adapter_from_env() -> AuditAdapter:
+    """
+    Builds the adapter AUDIT_LOG_BACKEND names: "loki" (the default when unset),
+    "dual" (Loki, then audit-server) or "audit_server". An unknown value, or an
+    audit-server backend without AUDIT_SERVER_BASE_URL, raises here so a bad
+    deploy fails at startup instead of on every event.
+    """
+    backend = os.getenv(AUDIT_LOG_BACKEND_ENV, AUDIT_LOG_BACKEND_LOKI).strip().lower()
+    if backend == AUDIT_LOG_BACKEND_LOKI:
+        return GrafanaLokiAdapter()
+    if backend not in (AUDIT_LOG_BACKEND_DUAL, AUDIT_LOG_BACKEND_AUDIT_SERVER):
+        raise AuditKitConfigurationError(
+            f"{AUDIT_LOG_BACKEND_ENV}={backend!r} is not one of "
+            f"{AUDIT_LOG_BACKEND_LOKI}, {AUDIT_LOG_BACKEND_DUAL}, {AUDIT_LOG_BACKEND_AUDIT_SERVER}."
+        )
+    if not os.getenv(AuditServerAdapter.base_url_env):
+        raise AuditKitConfigurationError(
+            f"{AUDIT_LOG_BACKEND_ENV}={backend} needs {AuditServerAdapter.base_url_env}."
+        )
+    if backend == AUDIT_LOG_BACKEND_DUAL:
+        return DualWriteAdapter(GrafanaLokiAdapter(), AuditServerAdapter())
+    return AuditServerAdapter()
 
 
 # SIGNOZ_INGESTION_KEY = settings.SIGNOZ_INGESTION_KEY

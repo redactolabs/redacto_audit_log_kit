@@ -1,10 +1,11 @@
 # TODO: this will be an interface dictating the adapter classes what to do
+from redacto_audit_log_kit.adapter import adapter_from_env
 
 
 class AuditClient:
-    def __init__(self, adapter):
-        # TODO: select adapter (external audit logs library) based on config or input parameter
-        self.adapter = adapter
+    def __init__(self, adapter=None):
+        # Without an adapter, AUDIT_LOG_BACKEND picks one (see adapter_from_env).
+        self.adapter = adapter if adapter is not None else adapter_from_env()
 
     def report_event(self, *args, **kwargs):
         return self.adapter.report_event(*args, **kwargs)

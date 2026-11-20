@@ -4,14 +4,24 @@ from unittest import mock
 
 import requests
 
-from redacto_audit_log_kit.adapter import GrafanaLokiAdapter
+from redacto_audit_log_kit.adapter import (
+    AuditServerAdapter,
+    DualWriteAdapter,
+    GrafanaLokiAdapter,
+    adapter_from_env,
+)
+from redacto_audit_log_kit.client import AuditClient
 from redacto_audit_log_kit.exceptions import (
+    AuditKitConfigurationError,
     AuditKitConnectionError,
     AuditKitExternalServiceError,
 )
+from redacto_audit_log_kit.schema import AuditEvent, SearchQuery
 
 LOKI_BASE_URL = "http://loki:3100"
 AUDIT_SERVER_BASE_URL = "http://consent:s3cret-client-key@audit-server:8080/audit"
+LOKI_PUSH = LOKI_BASE_URL + "/loki/api/v1/push"
+AUDIT_SERVER_PUSH = AUDIT_SERVER_BASE_URL + "/loki/api/v1/push"
 
 
 def defined_event():
@@ -23,76 +33,166 @@ def defined_event():
     }
 
 
-def response(status_code, text=""):
-    return mock.Mock(status_code=status_code, text=text)
+def response(status_code, text="", body=None):
+    r = mock.Mock(status_code=status_code, text=text)
+    r.json.return_value = body or {"status": "success"}
+    return r
 
 
-class TestDualWrite(unittest.TestCase):
-    def adapter(self, audit_server_base_url=None):
+class AdapterTestCase(unittest.TestCase):
+    def setUp(self):
         patcher = mock.patch.dict(
             os.environ,
-            {"AUDIT_LOG_SIGNING_KEY": "test-secret-key", "LOKI_BASE_URL": LOKI_BASE_URL},
+            {
+                "AUDIT_LOG_SIGNING_KEY": "test-secret-key",
+                "LOKI_BASE_URL": LOKI_BASE_URL,
+                "AUDIT_SERVER_BASE_URL": AUDIT_SERVER_BASE_URL,
+            },
         )
         patcher.start()
         self.addCleanup(patcher.stop)
-        os.environ.pop("AUDIT_SERVER_BASE_URL", None)
-        if audit_server_base_url:
-            os.environ["AUDIT_SERVER_BASE_URL"] = audit_server_base_url
-        return GrafanaLokiAdapter()
 
-    def post_returning(self, *responses):
+    def patch(self, method, *responses):
         patcher = mock.patch(
-            "redacto_audit_log_kit.adapter.requests.post", side_effect=list(responses)
+            f"redacto_audit_log_kit.adapter.requests.{method}", side_effect=list(responses)
         )
-        post = patcher.start()
+        mocked = patcher.start()
         self.addCleanup(patcher.stop)
-        return post
+        return mocked
 
-    def test_without_audit_server_only_loki_is_written(self):
-        adapter = self.adapter()
-        post = self.post_returning(response(204))
 
-        adapter.report_event(defined_event())
+class TestGrafanaLokiAdapter(AdapterTestCase):
+    def test_writes_loki_only_even_when_audit_server_is_configured(self):
+        post = self.patch("post", response(204))
 
-        self.assertEqual(
-            [c.args[0] for c in post.call_args_list],
-            [LOKI_BASE_URL + "/loki/api/v1/push"],
-        )
+        GrafanaLokiAdapter().report_event(defined_event())
 
-    def test_with_audit_server_both_receive_the_same_push(self):
-        adapter = self.adapter(AUDIT_SERVER_BASE_URL)
-        post = self.post_returning(response(204), response(204))
+        self.assertEqual([c.args[0] for c in post.call_args_list], [LOKI_PUSH])
 
-        adapter.report_event(defined_event())
+
+class TestAuditServerAdapter(AdapterTestCase):
+    def test_pushes_to_audit_server(self):
+        post = self.patch("post", response(204))
+
+        AuditServerAdapter().report_event(defined_event())
+
+        self.assertEqual(post.call_args.args[0], AUDIT_SERVER_PUSH)
+        self.assertEqual(post.call_args.kwargs["timeout"], 10)
+
+    def test_reads_from_audit_server(self):
+        get = self.patch("get", response(200))
+
+        AuditServerAdapter().get_events(SearchQuery(organization_uuid="org-1"))
+
+        self.assertEqual(get.call_args.args[0], AUDIT_SERVER_BASE_URL + "/loki/api/v1/query_range")
+
+    def test_a_rejection_names_audit_server(self):
+        self.patch("post", response(403, "service not allowed"))
+
+        with self.assertRaises(AuditKitExternalServiceError) as caught:
+            AuditServerAdapter().report_event(defined_event())
+
+        self.assertIn("audit-server returned", str(caught.exception))
+
+    def test_requires_its_base_url(self):
+        os.environ.pop("AUDIT_SERVER_BASE_URL")
+
+        with self.assertRaises(AuditKitConfigurationError) as caught:
+            AuditServerAdapter().report_event(defined_event())
+
+        self.assertIn("AUDIT_SERVER_BASE_URL is not set", str(caught.exception))
+
+
+class TestDualWriteAdapter(AdapterTestCase):
+    def adapter(self):
+        return DualWriteAdapter(GrafanaLokiAdapter(), AuditServerAdapter())
+
+    def test_log_sends_the_same_event_to_loki_then_audit_server(self):
+        post = self.patch("post", response(204), response(204))
+
+        self.adapter().log(AuditEvent(organization_uuid="org-1", service_name="consent", description="x"))
 
         loki, audit = post.call_args_list
-        self.assertEqual(loki.args[0], LOKI_BASE_URL + "/loki/api/v1/push")
-        self.assertEqual(audit.args[0], AUDIT_SERVER_BASE_URL + "/loki/api/v1/push")
+        self.assertEqual((loki.args[0], audit.args[0]), (LOKI_PUSH, AUDIT_SERVER_PUSH))
         self.assertEqual(audit.kwargs["json"], loki.kwargs["json"])
-        self.assertEqual(audit.kwargs["timeout"], 10)
 
     def test_an_audit_server_rejection_raises_for_the_caller_to_retry(self):
-        adapter = self.adapter(AUDIT_SERVER_BASE_URL)
-        self.post_returning(response(204), response(503, "unavailable"))
+        self.patch("post", response(204), response(503, "unavailable"))
 
         with self.assertRaises(AuditKitExternalServiceError):
-            adapter.report_event(defined_event())
+            self.adapter().report_event(defined_event())
 
     def test_an_audit_server_timeout_raises_for_the_caller_to_retry(self):
-        adapter = self.adapter(AUDIT_SERVER_BASE_URL)
-        self.post_returning(response(204), requests.exceptions.ReadTimeout("read timed out"))
+        self.patch("post", response(204), requests.exceptions.ReadTimeout("read timed out"))
 
         with self.assertRaises(AuditKitConnectionError):
-            adapter.report_event(defined_event())
+            self.adapter().report_event(defined_event())
 
     def test_a_loki_failure_raises_before_audit_server_is_written(self):
-        adapter = self.adapter(AUDIT_SERVER_BASE_URL)
-        post = self.post_returning(response(500, "loki down"), response(204))
+        post = self.patch("post", response(500, "loki down"), response(204))
 
         with self.assertRaises(AuditKitExternalServiceError):
-            adapter.report_event(defined_event())
+            self.adapter().report_event(defined_event())
 
         self.assertEqual(post.call_count, 1)
+
+    def test_reads_go_to_the_primary(self):
+        get = self.patch("get", response(200))
+
+        self.adapter().get_events(SearchQuery(organization_uuid="org-1"))
+
+        self.assertEqual(get.call_args.args[0], LOKI_BASE_URL + "/loki/api/v1/query_range")
+
+
+class TestAdapterFromEnv(AdapterTestCase):
+    def backend(self, value):
+        if value is None:
+            os.environ.pop("AUDIT_LOG_BACKEND", None)
+        else:
+            os.environ["AUDIT_LOG_BACKEND"] = value
+
+    def test_each_backend_builds_its_adapter(self):
+        cases = [
+            (None, GrafanaLokiAdapter),
+            ("loki", GrafanaLokiAdapter),
+            ("dual", DualWriteAdapter),
+            (" Dual ", DualWriteAdapter),
+            ("audit_server", AuditServerAdapter),
+        ]
+        for value, want in cases:
+            with self.subTest(AUDIT_LOG_BACKEND=value):
+                self.backend(value)
+                self.assertIs(type(adapter_from_env()), want)
+
+    def test_dual_writes_loki_first_then_audit_server(self):
+        self.backend("dual")
+
+        adapter = adapter_from_env()
+
+        self.assertIs(type(adapter.primary), GrafanaLokiAdapter)
+        self.assertIs(type(adapter.secondary), AuditServerAdapter)
+
+    def test_an_unknown_backend_fails_at_startup(self):
+        self.backend("both")
+
+        with self.assertRaises(AuditKitConfigurationError):
+            adapter_from_env()
+
+    def test_an_audit_server_backend_without_its_url_fails_at_startup(self):
+        os.environ.pop("AUDIT_SERVER_BASE_URL")
+        for value in ("dual", "audit_server"):
+            with self.subTest(AUDIT_LOG_BACKEND=value):
+                self.backend(value)
+                with self.assertRaises(AuditKitConfigurationError):
+                    adapter_from_env()
+
+    def test_a_client_without_an_adapter_follows_the_env(self):
+        self.backend("dual")
+        post = self.patch("post", response(204), response(204))
+
+        AuditClient().log(AuditEvent(organization_uuid="org-1", service_name="consent", description="x"))
+
+        self.assertEqual([c.args[0] for c in post.call_args_list], [LOKI_PUSH, AUDIT_SERVER_PUSH])
 
 
 if __name__ == "__main__":
