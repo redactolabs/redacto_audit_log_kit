@@ -394,55 +394,22 @@ class AuditServerAdapter(GrafanaLokiAdapter):
     backend_name = "audit-server"
 
 
-class DualWriteAdapter(AuditAdapter):
-    """
-    Sends every event to a primary and a secondary adapter, e.g.
-    DualWriteAdapter(GrafanaLokiAdapter(), AuditServerAdapter()).
-
-    The event is defined once, so both stores receive the same timestamp and
-    signature and each drops a retried repeat. The primary is written first; an event
-    counts as sent only when both accept it, so either failure raises and the caller's
-    retry sends it to both again. Reads go to the primary.
-    """
-
-    def __init__(self, primary: AuditAdapter, secondary: AuditAdapter):
-        self.primary = primary
-        self.secondary = secondary
-
-    def define_event(self, audit_log_entry: AuditEvent):
-        return self.primary.define_event(audit_log_entry)
-
-    def report_event(self, defined_event_dict: dict):
-        result = self.primary.report_event(defined_event_dict)
-        self.secondary.report_event(defined_event_dict)
-        return result
-
-    def log(self, audit_log_entry: AuditEvent):
-        return self.report_event(self.define_event(audit_log_entry))
-
-    def generate_search_query(self, search_query: SearchQuery):
-        return self.primary.generate_search_query(search_query)
-
-    def get_events(self, search_query: SearchQuery):
-        return self.primary.get_events(search_query)
-
-
 AUDIT_LOG_BACKEND_ENV = "AUDIT_LOG_BACKEND"
 AUDIT_LOG_BACKEND_LOKI = "loki"
 AUDIT_LOG_BACKEND_DUAL = "dual"
 AUDIT_LOG_BACKEND_AUDIT_SERVER = "audit_server"
 
 
-def adapter_from_env() -> AuditAdapter:
+def adapters_from_env() -> list:
     """
-    Builds the adapter AUDIT_LOG_BACKEND names: "loki" (the default when unset),
-    "dual" (Loki, then audit-server) or "audit_server". An unknown value, or an
-    audit-server backend without AUDIT_SERVER_BASE_URL, raises here so a bad
-    deploy fails at startup instead of on every event.
+    Builds the adapters AUDIT_LOG_BACKEND names, in write order: "loki" (the default
+    when unset), "dual" (Loki, then audit-server) or "audit_server". An unknown
+    value, or an audit-server backend without AUDIT_SERVER_BASE_URL, raises here so
+    a bad deploy fails at startup instead of on every event.
     """
     backend = os.getenv(AUDIT_LOG_BACKEND_ENV, AUDIT_LOG_BACKEND_LOKI).strip().lower()
     if backend == AUDIT_LOG_BACKEND_LOKI:
-        return GrafanaLokiAdapter()
+        return [GrafanaLokiAdapter()]
     if backend not in (AUDIT_LOG_BACKEND_DUAL, AUDIT_LOG_BACKEND_AUDIT_SERVER):
         raise AuditKitConfigurationError(
             f"{AUDIT_LOG_BACKEND_ENV}={backend!r} is not one of "
@@ -453,8 +420,8 @@ def adapter_from_env() -> AuditAdapter:
             f"{AUDIT_LOG_BACKEND_ENV}={backend} needs {AuditServerAdapter.base_url_env}."
         )
     if backend == AUDIT_LOG_BACKEND_DUAL:
-        return DualWriteAdapter(GrafanaLokiAdapter(), AuditServerAdapter())
-    return AuditServerAdapter()
+        return [GrafanaLokiAdapter(), AuditServerAdapter()]
+    return [AuditServerAdapter()]
 
 
 # SIGNOZ_INGESTION_KEY = settings.SIGNOZ_INGESTION_KEY

@@ -228,9 +228,8 @@ Each store has its own adapter:
 |---|---|---|
 | `GrafanaLokiAdapter` | Loki | `LOKI_BASE_URL` |
 | `AuditServerAdapter` | audit-server (Loki-compatible API) | `AUDIT_SERVER_BASE_URL`, e.g. `http://<client-id>:<client-secret>@audit-server:8080/audit`; the credentials are the service's audit-server client, sent as HTTP Basic auth |
-| `DualWriteAdapter(primary, secondary)` | both | from the two adapters |
 
-Build the client without an adapter and `AUDIT_LOG_BACKEND` picks one:
+Build the client without an adapter and `AUDIT_LOG_BACKEND` picks the adapters:
 
 ```python
 from redacto_audit_log_kit.client import AuditClient
@@ -238,10 +237,10 @@ from redacto_audit_log_kit.client import AuditClient
 client = AuditClient()
 ```
 
-| `AUDIT_LOG_BACKEND` | Adapter |
+| `AUDIT_LOG_BACKEND` | Adapters the client calls |
 |---|---|
 | unset or `loki` | `GrafanaLokiAdapter` (as before) |
-| `dual` | `DualWriteAdapter(GrafanaLokiAdapter(), AuditServerAdapter())` |
+| `dual` | `GrafanaLokiAdapter`, then `AuditServerAdapter` |
 | `audit_server` | `AuditServerAdapter` |
 
 An unknown value, or `dual`/`audit_server` without `AUDIT_SERVER_BASE_URL`, raises `AuditKitConfigurationError` when the client is built, so a bad deploy fails at startup.
@@ -250,7 +249,7 @@ With `dual`:
 
 - The event is defined once, so both stores get the same timestamp and signature.
 - Loki is written first. An event is sent only when both accept it; if either fails, `report_event` raises and the caller's retry sends it to both again, and each store drops the repeat.
-- Reads (`get_events`) go to the primary, Loki.
+- Reads (`get_events`) go to Loki.
 
 ## 🏷️ Releasing
 
