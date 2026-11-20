@@ -167,13 +167,23 @@ class TestDualWriteClient(AdapterTestCase):
         with self.assertRaises(AuditKitConnectionError):
             AuditClient().log(an_event())
 
-    def test_a_loki_failure_raises_before_audit_server_is_written(self):
+    def test_a_loki_failure_still_writes_audit_server_and_raises(self):
         post = self.patch("post", response(500, "loki down"), response(204))
 
-        with self.assertRaises(AuditKitExternalServiceError):
+        with self.assertRaises(AuditKitExternalServiceError) as caught:
             AuditClient().log(an_event())
 
-        self.assertEqual(post.call_count, 1)
+        self.assertEqual([c.args[0] for c in post.call_args_list], [LOKI_PUSH, AUDIT_SERVER_PUSH])
+        self.assertIn("Loki returned", str(caught.exception))
+
+    def test_when_both_fail_the_error_names_both(self):
+        self.patch("post", response(500, "loki down"), response(503, "audit-server down"))
+
+        with self.assertRaises(AuditKitExternalServiceError) as caught:
+            AuditClient().log(an_event())
+
+        self.assertIn("Loki returned", str(caught.exception))
+        self.assertTrue(any("audit-server returned" in n for n in caught.exception.__notes__))
 
     def test_reads_go_to_loki(self):
         get = self.patch("get", response(200))
@@ -181,6 +191,14 @@ class TestDualWriteClient(AdapterTestCase):
         AuditClient().get_events(SearchQuery(organization_uuid="org-1"))
 
         self.assertEqual(get.call_args.args[0], LOKI_BASE_URL + "/loki/api/v1/query_range")
+
+    def test_with_audit_server_alone_reads_go_to_audit_server(self):
+        self.backend("audit_server")
+        get = self.patch("get", response(200))
+
+        AuditClient().get_events(SearchQuery(organization_uuid="org-1"))
+
+        self.assertEqual(get.call_args.args[0], AUDIT_SERVER_BASE_URL + "/loki/api/v1/query_range")
 
     def test_an_explicit_adapter_still_writes_only_there(self):
         post = self.patch("post", response(204))

@@ -248,8 +248,8 @@ An unknown value, or `dual`/`audit_server` without `AUDIT_SERVER_BASE_URL`, rais
 With `dual`:
 
 - The event is defined once, so both stores get the same timestamp and signature.
-- Loki is written first. An event is sent only when both accept it; if either fails, `report_event` raises and the caller's retry sends it to both again, and each store drops the repeat.
-- Reads (`get_events`) go to Loki.
+- Both stores are written even if one fails, so a Loki outage doesn't stop audit-server writes or the other way round. An event is sent only when both accept it; if either fails, `report_event` raises (naming the store, with any second failure as a note) and the caller's retry sends it to both again, and each store drops the repeat.
+- Reads (`get_events`) go to Loki, the only store with the events from before `dual` was switched on.
 
 ## 🏷️ Releasing
 
