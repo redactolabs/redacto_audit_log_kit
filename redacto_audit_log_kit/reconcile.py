@@ -10,6 +10,8 @@ AUDIT_SERVER_BASE_URL:
 
 Start from the day dual write was switched on: events from before then are only in
 Loki. Exits 1 when any day differs, and prints up to --show of the missing events.
+Exits 2 when a store can't be read (for example a 403 because this service's
+audit-server client may not read --service), since nothing was compared.
 """
 
 import argparse
@@ -18,6 +20,7 @@ import sys
 from collections import defaultdict
 
 from redacto_audit_log_kit.adapter import AuditServerAdapter, GrafanaLokiAdapter
+from redacto_audit_log_kit.exceptions import AuditKitError
 from redacto_audit_log_kit.schema import MAX_LIMIT, SearchQuery
 
 NS_PER_SECOND = 1_000_000_000
@@ -96,14 +99,18 @@ def main(argv=None):
     parser.add_argument("--show", type=int, default=20, help="missing events to print per day")
     args = parser.parse_args(argv)
 
-    days = reconcile(
-        GrafanaLokiAdapter(),
-        AuditServerAdapter(),
-        args.org,
-        args.service,
-        utc_midnight_ns(args.start),
-        utc_midnight_ns(args.end),
-    )
+    try:
+        days = reconcile(
+            GrafanaLokiAdapter(),
+            AuditServerAdapter(),
+            args.org,
+            args.service,
+            utc_midnight_ns(args.start),
+            utc_midnight_ns(args.end),
+        )
+    except AuditKitError as e:
+        print(f"could not read a store, nothing compared: {e}", file=sys.stderr)
+        return 2
     differs = False
     print("day         loki  audit_server  only_loki  only_audit_server")
     for day, d in days.items():

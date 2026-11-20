@@ -1,7 +1,11 @@
 import datetime
+import io
 import unittest
+from contextlib import redirect_stderr
+from unittest import mock
 
-from redacto_audit_log_kit.reconcile import event_keys, reconcile
+from redacto_audit_log_kit.exceptions import AuditKitExternalServiceError
+from redacto_audit_log_kit.reconcile import event_keys, main, reconcile
 from redacto_audit_log_kit.schema import MAX_LIMIT
 
 DAY_1 = 1_795_219_200_000_000_000  # 2026-11-21 00:00 UTC
@@ -89,6 +93,22 @@ class TestReconcile(unittest.TestCase):
                 },
             },
         )
+
+
+class TestMain(unittest.TestCase):
+    def test_a_store_it_cannot_read_exits_2_not_1(self):
+        class Forbidden:
+            def get_events(self, query):
+                raise AuditKitExternalServiceError(403, "audit-server returned: forbidden")
+
+        argv = ["--org", "org", "--service", "vrm", "--start", "2026-11-21", "--end", "2026-11-22"]
+        with mock.patch("redacto_audit_log_kit.reconcile.GrafanaLokiAdapter", lambda: FakeStore([])), \
+                mock.patch("redacto_audit_log_kit.reconcile.AuditServerAdapter", Forbidden), \
+                redirect_stderr(io.StringIO()) as err:
+            code = main(argv)
+
+        self.assertEqual(code, 2)
+        self.assertIn("nothing compared", err.getvalue())
 
 
 if __name__ == "__main__":
