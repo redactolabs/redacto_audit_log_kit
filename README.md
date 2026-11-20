@@ -249,7 +249,29 @@ With `dual`:
 
 - The event is defined once, so both stores get the same timestamp and signature.
 - Both stores are written even if one fails, so a Loki outage doesn't stop audit-server writes or the other way round. An event is sent only when both accept it; if either fails, `report_event` raises (naming the store, with any second failure as a note) and the caller's retry sends it to both again, and each store drops the repeat.
-- Reads (`get_events`) go to Loki, the only store with the events from before `dual` was switched on.
+- Reads (`get_events`) go to Loki, the only store with the events from before `dual` was switched on, unless `AUDIT_LOG_READ_FROM` says otherwise.
+
+`AUDIT_LOG_READ_FROM` picks the store reads go to:
+
+| `AUDIT_LOG_READ_FROM` | Reads go to |
+|---|---|
+| unset | Loki while it is written, otherwise audit-server |
+| `loki` | Loki |
+| `audit_server` | audit-server |
+
+Naming a store that `AUDIT_LOG_BACKEND` doesn't write, or an unknown value, raises `AuditKitConfigurationError` when the client is built. A client built with an explicit adapter reads from that adapter and ignores both variables.
+
+Moving a service off Loki is then one env change per step, each one reversible:
+
+1. `AUDIT_LOG_BACKEND=dual`: write both, read Loki.
+2. Check the two stores hold the same events. Run this inside a service pod, which already has both base URLs; it exits 1 and lists the missing events when a day differs. Start from the day `dual` was switched on, since earlier events are only in Loki:
+
+   ```bash
+   python -m redacto_audit_log_kit.reconcile --org <organization_uuid> --service consent \
+       --start 2026-11-21 --end 2026-11-28
+   ```
+3. `AUDIT_LOG_READ_FROM=audit_server`: write both, read audit-server. Loki is still written, as a fallback.
+4. `AUDIT_LOG_BACKEND=audit_server`: write and read audit-server only.
 
 ## 🏷️ Releasing
 

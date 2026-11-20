@@ -40,6 +40,7 @@ AUDIT_LOG_BACKEND_ENV = "AUDIT_LOG_BACKEND"
 AUDIT_LOG_BACKEND_LOKI = "loki"
 AUDIT_LOG_BACKEND_DUAL = "dual"
 AUDIT_LOG_BACKEND_AUDIT_SERVER = "audit_server"
+AUDIT_LOG_READ_FROM_ENV = "AUDIT_LOG_READ_FROM"
 
 
 def _logql_string(value) -> str:
@@ -726,6 +727,34 @@ def adapters_from_env() -> list:
     if backend == AUDIT_LOG_BACKEND_DUAL:
         return [GrafanaLokiAdapter(), AuditServerAdapter()]
     return [AuditServerAdapter()]
+
+
+def reader_from_env(adapters: list):
+    """
+    Picks which of the written adapters reads go to. AUDIT_LOG_READ_FROM names "loki"
+    or "audit_server"; unset, reads go to Loki while it is written, because only Loki
+    holds the events from before audit-server was switched on. A value naming a store
+    that is not written raises here, at startup.
+    """
+    read_from = os.getenv(AUDIT_LOG_READ_FROM_ENV, "").strip().lower()
+    if not read_from:
+        return next((a for a in adapters if isinstance(a, GrafanaLokiAdapter)), adapters[0])
+    adapter_type = {
+        AUDIT_LOG_BACKEND_LOKI: GrafanaLokiAdapter,
+        AUDIT_LOG_BACKEND_AUDIT_SERVER: AuditServerAdapter,
+    }.get(read_from)
+    if adapter_type is None:
+        raise AuditKitConfigurationError(
+            f"{AUDIT_LOG_READ_FROM_ENV}={read_from!r} is not one of "
+            f"{AUDIT_LOG_BACKEND_LOKI}, {AUDIT_LOG_BACKEND_AUDIT_SERVER}."
+        )
+    reader = next((a for a in adapters if isinstance(a, adapter_type)), None)
+    if reader is None:
+        raise AuditKitConfigurationError(
+            f"{AUDIT_LOG_READ_FROM_ENV}={read_from} names a store "
+            f"{AUDIT_LOG_BACKEND_ENV} does not write."
+        )
+    return reader
 
 
 # SIGNOZ_INGESTION_KEY = settings.SIGNOZ_INGESTION_KEY

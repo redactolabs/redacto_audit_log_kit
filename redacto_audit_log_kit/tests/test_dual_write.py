@@ -8,6 +8,7 @@ from redacto_audit_log_kit.adapter import (
     AuditServerAdapter,
     GrafanaLokiAdapter,
     adapters_from_env,
+    reader_from_env,
 )
 from redacto_audit_log_kit.client import AuditClient
 from redacto_audit_log_kit.exceptions import (
@@ -54,12 +55,20 @@ class AdapterTestCase(unittest.TestCase):
         )
         patcher.start()
         self.addCleanup(patcher.stop)
+        os.environ.pop("AUDIT_LOG_BACKEND", None)
+        os.environ.pop("AUDIT_LOG_READ_FROM", None)
 
     def backend(self, value):
         if value is None:
             os.environ.pop("AUDIT_LOG_BACKEND", None)
         else:
             os.environ["AUDIT_LOG_BACKEND"] = value
+
+    def read_from(self, value):
+        if value is None:
+            os.environ.pop("AUDIT_LOG_READ_FROM", None)
+        else:
+            os.environ["AUDIT_LOG_READ_FROM"] = value
 
     def patch(self, method, *responses):
         patcher = mock.patch(
@@ -141,6 +150,37 @@ class TestAdaptersFromEnv(AdapterTestCase):
                     adapters_from_env()
 
 
+class TestReaderFromEnv(AdapterTestCase):
+    def test_reads_go_to_the_named_store_or_loki_while_it_is_written(self):
+        cases = [
+            ("dual", None, GrafanaLokiAdapter),
+            ("dual", "loki", GrafanaLokiAdapter),
+            ("dual", " Audit_Server ", AuditServerAdapter),
+            ("audit_server", None, AuditServerAdapter),
+            ("audit_server", "audit_server", AuditServerAdapter),
+        ]
+        for backend, read_from, want in cases:
+            with self.subTest(AUDIT_LOG_BACKEND=backend, AUDIT_LOG_READ_FROM=read_from):
+                self.backend(backend)
+                self.read_from(read_from)
+                self.assertIsInstance(reader_from_env(adapters_from_env()), want)
+
+    def test_an_unknown_value_fails_at_startup(self):
+        self.backend("dual")
+        self.read_from("postgres")
+
+        with self.assertRaises(AuditKitConfigurationError):
+            reader_from_env(adapters_from_env())
+
+    def test_reading_a_store_that_is_not_written_fails_at_startup(self):
+        for backend, read_from in (("loki", "audit_server"), ("audit_server", "loki")):
+            with self.subTest(AUDIT_LOG_BACKEND=backend, AUDIT_LOG_READ_FROM=read_from):
+                self.backend(backend)
+                self.read_from(read_from)
+                with self.assertRaises(AuditKitConfigurationError):
+                    AuditClient()
+
+
 class TestDualWriteClient(AdapterTestCase):
     def setUp(self):
         super().setUp()
@@ -210,6 +250,26 @@ class TestDualWriteClient(AdapterTestCase):
         AuditClient().get_events(SearchQuery(organization_uuid="org-1"))
 
         self.assertEqual(get.call_args.args[0], AUDIT_SERVER_BASE_URL + "/loki/api/v1/query_range")
+
+    def test_reads_can_move_to_audit_server_while_both_are_written(self):
+        self.read_from("audit_server")
+        post = self.patch("post", response(204), response(204))
+        get = self.patch("get", response(200))
+        client = AuditClient()
+
+        client.log(an_event())
+        client.get_events(SearchQuery(organization_uuid="org-1"))
+
+        self.assertEqual([c.args[0] for c in post.call_args_list], [LOKI_PUSH, AUDIT_SERVER_PUSH])
+        self.assertEqual(get.call_args.args[0], AUDIT_SERVER_BASE_URL + "/loki/api/v1/query_range")
+
+    def test_an_explicit_adapter_reads_there_whatever_the_env_says(self):
+        self.read_from("audit_server")
+        get = self.patch("get", response(200))
+
+        AuditClient(adapter=GrafanaLokiAdapter()).get_events(SearchQuery(organization_uuid="org-1"))
+
+        self.assertEqual(get.call_args.args[0], LOKI_BASE_URL + "/loki/api/v1/query_range")
 
     def test_an_explicit_adapter_still_writes_only_there(self):
         post = self.patch("post", response(204))

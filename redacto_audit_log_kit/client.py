@@ -1,10 +1,11 @@
 # TODO: this will be an interface dictating the adapter classes what to do
-from redacto_audit_log_kit.adapter import GrafanaLokiAdapter, adapters_from_env
+from redacto_audit_log_kit.adapter import adapters_from_env, reader_from_env
 
 
 class AuditClient:
     """
-    Without an adapter, AUDIT_LOG_BACKEND picks the adapters (see adapters_from_env).
+    Without an adapter, AUDIT_LOG_BACKEND picks the adapters (see adapters_from_env)
+    and AUDIT_LOG_READ_FROM the one reads go to (see reader_from_env).
 
     With more than one (dual write), every store is treated the same: the event is
     defined once, so all of them get the same timestamp and signature, and is sent to
@@ -12,15 +13,16 @@ class AuditClient:
     (with the others as notes), so the caller's retry sends it to all again and each
     store drops the repeat.
 
-    Reads go to Loki while it is configured, because only Loki holds the events from
-    before audit-server was switched on; otherwise to the one adapter there is.
+    With an explicit adapter, both reads and writes go to it.
     """
 
     def __init__(self, adapter=None):
-        self.adapters = [adapter] if adapter is not None else adapters_from_env()
-        self.reader = next(
-            (a for a in self.adapters if isinstance(a, GrafanaLokiAdapter)), self.adapters[0]
-        )
+        if adapter is not None:
+            self.adapters = [adapter]
+            self.reader = adapter
+            return
+        self.adapters = adapters_from_env()
+        self.reader = reader_from_env(self.adapters)
 
     def report_event(self, defined_event_dict):
         results, errors = [], []
