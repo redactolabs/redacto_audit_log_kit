@@ -35,6 +35,13 @@ PUSH_TIMEOUT_SECONDS = 10
 # query_range can take that long and waiting longer gains nothing.
 QUERY_TIMEOUT_SECONDS = 30
 
+AUDIT_SERVER_BASE_URL_ENV = "AUDIT_SERVER_BASE_URL"
+AUDIT_LOG_BACKEND_ENV = "AUDIT_LOG_BACKEND"
+AUDIT_LOG_BACKEND_LOKI = "loki"
+AUDIT_LOG_BACKEND_DUAL = "dual"
+AUDIT_LOG_BACKEND_AUDIT_SERVER = "audit_server"
+AUDIT_LOG_READ_FROM_ENV = "AUDIT_LOG_READ_FROM"
+
 
 def _logql_string(value) -> str:
     return json.dumps(str(value), ensure_ascii=False)
@@ -377,6 +384,377 @@ class GrafanaLokiAdapter(AuditAdapter):
             raise AuditKitConnectionError(f"get_events network error: {e}")
         except Exception as e:
             raise AuditKitEventProcessingError(f"get_events unexpected error: {e}")
+
+
+class AuditServerAdapter(AuditAdapter):
+    """
+    Writes and reads audit-server, which serves Loki's push and query_range API under
+    its /audit base path. Configure AUDIT_SERVER_BASE_URL with the service's client
+    credentials as userinfo, e.g. http://<client-id>:<client-secret>@audit-server:8080/audit;
+    requests sends them as HTTP Basic auth.
+    """
+
+    label_fields = {
+        "organization_uuid",
+        "workspace_uuid",
+        "vrm_vendor_id",
+        "service_name",
+        "kb_id",
+    }
+
+    optional_label_fields = {
+        "log_category",
+    }
+
+    pipeline_filter_fields = {
+        "source_ip",
+        "resource_type",
+        "description",
+        "action",
+        "crud",
+        "actor_name",
+        "actor_uuid",
+        "resource_name",
+        "resource_uuid",
+        "event_id",
+        "actor_type",
+    }
+
+    non_logql_query_params = {
+        "limit",
+        "start",
+        "end",
+        "since",
+        "interval",
+        "direction",
+    }
+
+    def __init__(self):
+        self.signing_key = os.environ.get("AUDIT_LOG_SIGNING_KEY")
+        if not self.signing_key:
+            raise AuditKitConfigurationError(
+                "AUDIT_LOG_SIGNING_KEY environment variable is required"
+            )
+
+    def define_event(self, audit_log_entry: AuditEvent):
+
+        try:
+            # compute timestamp in ns
+            if hasattr(audit_log_entry, "created"):
+                created = audit_log_entry.created
+                if isinstance(created, datetime.datetime):
+                    unix_epoch_ns = int(created.timestamp() * 1_000_000_000)
+                elif isinstance(created, (int, float)):
+                    if created > 1e12:  # assume already in ns
+                        unix_epoch_ns = int(created)
+                    else:  # assume seconds
+                        unix_epoch_ns = int(float(created) * 1_000_000_000)
+                else:
+                    unix_epoch_ns = int(time.time_ns())
+            else:
+                unix_epoch_ns = int(time.time_ns())
+
+            # extract structured_metadata (all non-label, non-created, non-description fields)
+            structured_metadata = {}
+            labels = {}
+            for field, value in audit_log_entry.model_dump().items():
+                if field in self.label_fields:
+                    labels[field] = value
+                elif field in self.optional_label_fields:
+                    if value is not None:
+                        labels[field] = value
+                elif field == "attributes":
+                    for key, attribute_value in (value or {}).items():
+                        structured_metadata[ATTRIBUTE_PREFIX + key] = attribute_value
+                # event_signature is excluded because it's computed internally by the
+                # adapter and not part of the AuditEvent schema - callers never provide it
+                elif field not in {"description", "created", "event_signature"}:
+                    if value is not None:
+                        structured_metadata[field] = value
+
+            event_dict = {
+                "timestamp": unix_epoch_ns,
+                "body": audit_log_entry.description,
+                "labels": labels,
+                "structured_metadata": structured_metadata,
+            }
+
+            event_dict["structured_metadata"]["event_signature"] = (
+                compute_event_signature(event_dict, self.signing_key)
+            )
+
+            return event_dict
+
+        except (
+            AuditKitConfigurationError,
+            AuditKitConnectionError,
+            AuditKitExternalServiceError,
+            AuditKitInvalidDataError,
+            AuditKitEventProcessingError,
+        ):
+            raise  # Re-raise custom exceptions as-is
+        except (AttributeError, ValueError, TypeError) as e:
+            raise AuditKitInvalidDataError(f"define_event unexpected error: {e}")
+        except Exception as e:
+            raise AuditKitEventProcessingError(f"define_event unexpected error: {e}")
+
+    def report_event(self, defined_event_dict: dict):
+        """
+        Accepts an AuditEvent, extracts timestamp and description, and sends to audit-server.
+        Raises AuditKitConfigurationError, AuditKitConnectionError, AuditKitExternalServiceError, or AuditKitEventProcessingError.
+        """
+        try:
+            base_url = os.getenv(AUDIT_SERVER_BASE_URL_ENV)
+            if not base_url:
+                raise AuditKitConfigurationError(f"{AUDIT_SERVER_BASE_URL_ENV} is not set.")
+            push_events_endpoint = base_url + "/loki/api/v1/push"
+
+            headers = {
+                "Content-Type": "application/json",
+            }
+
+            ts = str(defined_event_dict["timestamp"])
+            msg = defined_event_dict["body"]
+            structured_meta_data = defined_event_dict.get("structured_metadata", {})
+            labels = defined_event_dict.get("labels", {})
+            structured_meta_data = {
+                k: str(v)
+                for k, v in defined_event_dict.get("structured_metadata", {}).items()
+            }
+            streams = [{"stream": labels, "values": [[ts, msg, structured_meta_data]]}]
+            payload = {"streams": streams}
+            response = requests.post(
+                push_events_endpoint,
+                json=payload,
+                headers=headers,
+                timeout=PUSH_TIMEOUT_SECONDS,
+            )
+            if response.status_code not in [200, 204]:
+                raise AuditKitExternalServiceError(
+                    response.status_code, f"audit-server returned: {response.text}"
+                )
+
+            return {
+                "status": "success",
+                "status_code": response.status_code,
+                "message": "Event reported successfully",
+            }
+
+        except (
+            AuditKitConfigurationError,
+            AuditKitConnectionError,
+            AuditKitExternalServiceError,
+            AuditKitInvalidDataError,
+            AuditKitEventProcessingError,
+        ):
+            raise  # Re-raise custom exceptions as-is
+        except requests.exceptions.RequestException as e:
+            raise AuditKitConnectionError(f"report_event network error: {e}")
+        except (KeyError, ValueError, TypeError) as e:
+            raise AuditKitInvalidDataError(f"report_event failed: {e}")
+        except Exception as e:
+            raise AuditKitEventProcessingError(f"report_event unexpected error: {e}")
+
+    def log(self, audit_log_entry: AuditEvent):
+        """
+        Processes an audit log entry and sends it to audit-server.
+        This is a convenience method that combines define_event() and report_event().
+        Raises AuditKitEventProcessingError on error.
+        """
+        try:
+            defined_event_dict = self.define_event(audit_log_entry)
+            return self.report_event(defined_event_dict)
+        except (
+            AuditKitConfigurationError,
+            AuditKitConnectionError,
+            AuditKitExternalServiceError,
+            AuditKitInvalidDataError,
+            AuditKitEventProcessingError,
+        ):
+            raise  # Re-raise custom exceptions as-is
+        except Exception as e:
+            # logger.exception(f"Failed to log audit event: {e}")
+            raise AuditKitEventProcessingError(f"log unexpected error: {e}")
+
+    def _generate_logql_query(self, search_query: SearchQuery):
+        # Convert input to dictionary, ignoring None values
+        query_dict = search_query.model_dump(exclude_none=True)
+        label_filters = []
+        pipeline_filters = []
+
+        # Build label selector from label_fields
+        for field in self.label_fields | self.optional_label_fields:
+            if field in query_dict:
+                value = query_dict.pop(field)
+                label_filters.append(f"{field}={_logql_string(value)}")
+
+        # Create label selector string
+        if label_filters:
+            label_selector = "{" + ", ".join(label_filters) + "}"
+        else:
+            label_selector = "{}"
+
+        # Build pipeline filters from pipeline_filter_fields
+        for field in self.pipeline_filter_fields:
+            if field in query_dict:
+                value = query_dict[field]
+                pipeline_filters.append(f"{field}={_logql_string(value)}")
+
+        # Construct pipeline string
+        if pipeline_filters:
+            pipeline = " | " + " | ".join(pipeline_filters)
+        else:
+            pipeline = ""
+
+        # Combine for final LogQL query
+        logql_query = label_selector + pipeline
+        return logql_query
+
+    def generate_search_query(
+        self,
+        search_query: SearchQuery,
+    ):
+        """
+        Efficiently constructs Loki query_range parameters as a dict from SearchQuery fields.
+        Validates/converts time fields to Loki-compatible formats.
+        Returns: dict of query params for Loki API.
+        Raises AuditKitEventProcessingError on error.
+        """
+        try:
+            params = {}
+            # Always use generated LogQL query
+            params["query"] = self._generate_logql_query(search_query)
+
+            for field in self.non_logql_query_params:
+                value = getattr(search_query, field, None)
+                if value is not None:
+                    # Special handling for time fields
+                    if field in ("start", "end"):
+                        if isinstance(value, datetime.datetime):
+                            params[field] = int(value.timestamp() * 1_000_000_000)
+                        elif isinstance(value, (int, float)):
+                            if value > 1e12:
+                                params[field] = int(value)
+                            else:
+                                params[field] = int(float(value) * 1_000_000_000)
+                        else:
+                            raise AuditKitInvalidDataError(
+                                f"{field} has unsupported type: {type(value)}"
+                            )
+                    else:
+                        params[field] = value
+
+            return params
+
+        except (
+            AuditKitConfigurationError,
+            AuditKitConnectionError,
+            AuditKitExternalServiceError,
+            AuditKitInvalidDataError,
+            AuditKitEventProcessingError,
+        ):
+            raise  # Re-raise custom exceptions as-is
+        except Exception as e:
+            raise AuditKitEventProcessingError(
+                f"generate_search_query unexpected error: {e}"
+            )
+
+    def get_events(
+        self,
+        # TODO: RADHIKA here we need to take in the page size too
+        search_query: SearchQuery,
+    ):
+        """
+        Queries audit-server's /loki/api/v1/query_range endpoint with generated params.
+        Returns the JSON response or raises an error.
+        """
+        try:
+            params = self.generate_search_query(search_query)
+
+            base_url = os.getenv(AUDIT_SERVER_BASE_URL_ENV)
+            if not base_url:
+                raise AuditKitConfigurationError(f"{AUDIT_SERVER_BASE_URL_ENV} is not set.")
+            get_events_endpoint = base_url + "/loki/api/v1/query_range"
+
+            headers = {
+                "Accept": "application/json",
+            }
+            response = requests.get(
+                get_events_endpoint,
+                headers=headers,
+                params=params,
+                timeout=QUERY_TIMEOUT_SECONDS,
+            )
+            if response.status_code != 200:
+                raise AuditKitExternalServiceError(
+                    response.status_code, f"audit-server returned: {response.text}"
+                )
+            return response.json()
+
+        except (
+            AuditKitConfigurationError,
+            AuditKitConnectionError,
+            AuditKitExternalServiceError,
+            AuditKitInvalidDataError,
+            AuditKitEventProcessingError,
+        ):
+            raise  # Re-raise custom exceptions as-is
+        except requests.exceptions.RequestException as e:
+            raise AuditKitConnectionError(f"get_events network error: {e}")
+        except Exception as e:
+            raise AuditKitEventProcessingError(f"get_events unexpected error: {e}")
+
+
+def adapters_from_env() -> list:
+    """
+    Builds the adapters AUDIT_LOG_BACKEND names, in write order: "loki" (the default
+    when unset), "dual" (Loki, then audit-server) or "audit_server". An unknown
+    value, or an audit-server backend without AUDIT_SERVER_BASE_URL, raises here so
+    a bad deploy fails at startup instead of on every event.
+    """
+    backend = os.getenv(AUDIT_LOG_BACKEND_ENV, AUDIT_LOG_BACKEND_LOKI).strip().lower()
+    if backend == AUDIT_LOG_BACKEND_LOKI:
+        return [GrafanaLokiAdapter()]
+    if backend not in (AUDIT_LOG_BACKEND_DUAL, AUDIT_LOG_BACKEND_AUDIT_SERVER):
+        raise AuditKitConfigurationError(
+            f"{AUDIT_LOG_BACKEND_ENV}={backend!r} is not one of "
+            f"{AUDIT_LOG_BACKEND_LOKI}, {AUDIT_LOG_BACKEND_DUAL}, {AUDIT_LOG_BACKEND_AUDIT_SERVER}."
+        )
+    if not os.getenv(AUDIT_SERVER_BASE_URL_ENV):
+        raise AuditKitConfigurationError(
+            f"{AUDIT_LOG_BACKEND_ENV}={backend} needs {AUDIT_SERVER_BASE_URL_ENV}."
+        )
+    if backend == AUDIT_LOG_BACKEND_DUAL:
+        return [GrafanaLokiAdapter(), AuditServerAdapter()]
+    return [AuditServerAdapter()]
+
+
+def reader_from_env(adapters: list):
+    """
+    Picks which of the written adapters reads go to. AUDIT_LOG_READ_FROM names "loki"
+    or "audit_server"; unset, reads go to Loki while it is written, because only Loki
+    holds the events from before audit-server was switched on. A value naming a store
+    that is not written raises here, at startup.
+    """
+    read_from = os.getenv(AUDIT_LOG_READ_FROM_ENV, "").strip().lower()
+    if not read_from:
+        return next((a for a in adapters if isinstance(a, GrafanaLokiAdapter)), adapters[0])
+    adapter_type = {
+        AUDIT_LOG_BACKEND_LOKI: GrafanaLokiAdapter,
+        AUDIT_LOG_BACKEND_AUDIT_SERVER: AuditServerAdapter,
+    }.get(read_from)
+    if adapter_type is None:
+        raise AuditKitConfigurationError(
+            f"{AUDIT_LOG_READ_FROM_ENV}={read_from!r} is not one of "
+            f"{AUDIT_LOG_BACKEND_LOKI}, {AUDIT_LOG_BACKEND_AUDIT_SERVER}."
+        )
+    reader = next((a for a in adapters if isinstance(a, adapter_type)), None)
+    if reader is None:
+        raise AuditKitConfigurationError(
+            f"{AUDIT_LOG_READ_FROM_ENV}={read_from} names a store "
+            f"{AUDIT_LOG_BACKEND_ENV} does not write."
+        )
+    return reader
 
 
 # SIGNOZ_INGESTION_KEY = settings.SIGNOZ_INGESTION_KEY
