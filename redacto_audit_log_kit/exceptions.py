@@ -26,9 +26,11 @@ class AuditKitConnectionError(AuditKitError):
 class AuditKitExternalServiceError(AuditKitError):
     """Raised when the external service returns an error response."""
 
-    def __init__(self, status_code, message):
+    def __init__(self, status_code, message, permanent=False):
         super().__init__(f"External Service error {status_code}: {message}")
         self.status_code = status_code
+        # True when retrying cannot help: a bad request or a config error.
+        self.permanent = permanent
 
 
 class AuditKitInvalidDataError(AuditKitError):

@@ -4,12 +4,8 @@ from unittest import mock
 
 import requests
 
-from redacto_audit_log_kit.adapter import (
-    AuditServerAdapter,
-    GrafanaLokiAdapter,
-    adapters_from_env,
-    reader_from_env,
-)
+from redacto_audit_log_kit.adapter import AuditServerAdapter, GrafanaLokiAdapter
+from redacto_audit_log_kit.factory import adapters_from_env, reader_from_env
 from redacto_audit_log_kit.client import AuditClient
 from redacto_audit_log_kit.exceptions import (
     AuditKitConfigurationError,
@@ -116,9 +112,44 @@ class TestAuditServerAdapter(AdapterTestCase):
         os.environ.pop("AUDIT_SERVER_BASE_URL")
 
         with self.assertRaises(AuditKitConfigurationError) as caught:
-            AuditServerAdapter().report_event(defined_event())
+            AuditServerAdapter()
 
         self.assertIn("AUDIT_SERVER_BASE_URL is not set", str(caught.exception))
+
+
+    def test_a_url_without_credentials_fails_at_startup(self):
+        os.environ["AUDIT_SERVER_BASE_URL"] = "http://audit-server:8080/audit"
+
+        with self.assertRaises(AuditKitConfigurationError):
+            AuditServerAdapter()
+
+    def test_a_trailing_slash_in_the_url_is_dropped(self):
+        os.environ["AUDIT_SERVER_BASE_URL"] = AUDIT_SERVER_BASE_URL + "/"
+        os.environ["LOKI_BASE_URL"] = LOKI_BASE_URL + "//"
+        post = self.patch("post", response(204), response(204))
+
+        AuditServerAdapter().report_event(defined_event())
+        GrafanaLokiAdapter().report_event(defined_event())
+
+        self.assertEqual([c.args[0] for c in post.call_args_list], [AUDIT_SERVER_PUSH, LOKI_PUSH])
+
+    def test_only_a_transient_failure_is_worth_retrying(self):
+        cases = [(400, True), (401, True), (403, True), (413, True), (415, True), (503, False)]
+        for status, permanent in cases:
+            with self.subTest(status=status):
+                self.patch("post", response(status, "nope"))
+                with self.assertRaises(AuditKitExternalServiceError) as caught:
+                    AuditServerAdapter().report_event(defined_event())
+                self.assertEqual(caught.exception.status_code, status)
+                self.assertIs(caught.exception.permanent, permanent)
+
+    def test_a_403_names_the_audit_clients_fix(self):
+        self.patch("post", response(403, "forbidden"))
+
+        with self.assertRaises(AuditKitExternalServiceError) as caught:
+            AuditServerAdapter().report_event(defined_event())
+
+        self.assertIn("AUDIT_CLIENTS", str(caught.exception))
 
 
 class TestAdaptersFromEnv(AdapterTestCase):

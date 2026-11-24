@@ -1,5 +1,6 @@
 # TODO: this will be an interface dictating the adapter classes what to do
-from redacto_audit_log_kit.adapter import adapters_from_env, reader_from_env
+from redacto_audit_log_kit.adapter import define_event, signing_key_from_env
+from redacto_audit_log_kit.factory import adapters_from_env, reader_from_env
 
 
 class AuditClient:
@@ -43,11 +44,14 @@ class AuditClient:
             "stores": {type(a).__name__: r for a, r in zip(self.adapters, results)},
         }
 
-    def define_event(self, *args, **kwargs):
-        return self.reader.define_event(*args, **kwargs)
+    def define_event(self, audit_log_entry):
+        return define_event(audit_log_entry, signing_key_from_env())
 
     def get_events(self, *args, **kwargs):
         return self.reader.get_events(*args, **kwargs)
+
+    def get_page(self, search_query):
+        return self.reader.get_page(search_query)
 
     def log(self, audit_log_entry):
         if len(self.adapters) == 1:

@@ -243,7 +243,9 @@ client = AuditClient()
 | `dual` | `GrafanaLokiAdapter`, then `AuditServerAdapter` |
 | `audit_server` | `AuditServerAdapter` |
 
-An unknown value, or `dual`/`audit_server` without `AUDIT_SERVER_BASE_URL`, raises `AuditKitConfigurationError` when the client is built, so a bad deploy fails at startup.
+An unknown value, or `dual`/`audit_server` without `AUDIT_SERVER_BASE_URL` or without credentials in it, raises `AuditKitConfigurationError` when the client is built, so a bad deploy fails at startup. A trailing `/` on either base URL is ignored.
+
+A rejected request raises `AuditKitExternalServiceError` with `permanent=True` when retrying cannot help (400, 401, 403, 413, 415), and `permanent=False` otherwise (for example 503). A 403 from audit-server means the client's `AUDIT_CLIENTS` entry lacks that `service_name`.
 
 With `dual`:
 
@@ -272,6 +274,18 @@ Moving a service off Loki is then one env change per step, each one reversible:
    ```
 3. `AUDIT_LOG_READ_FROM=audit_server`: write both, read audit-server. Loki is still written, as a fallback.
 4. `AUDIT_LOG_BACKEND=audit_server`: write and read audit-server only.
+
+### Reading a page
+
+`get_page` returns an `AuditPage` that is the same whichever store is read, so a service needs no change when reads move:
+
+```python
+page = client.get_page(SearchQuery(organization_uuid=org, service_name="consent", limit=10))
+page.events           # AuditRecord(timestamp, message, metadata, attributes), newest first
+page.next_page_token  # pass back as SearchQuery(page_token=...); None on the last page
+```
+
+The token is opaque: pass it back, never parse it. Loki metadata is un-escaped for events from before `LOKI_METADATA_ESCAPED_BEFORE_NS` (all of them when unset), as the services did; audit-server metadata is returned as stored. `get_events` still returns the store's raw JSON.
 
 ## 🏷️ Releasing
 
