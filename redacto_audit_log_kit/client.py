@@ -1,5 +1,6 @@
 # TODO: this will be an interface dictating the adapter classes what to do
-from redacto_audit_log_kit.adapter import define_event, signing_key_from_env
+from redacto_audit_log_kit.events import define_event, signing_key_from_env
+from redacto_audit_log_kit.exceptions import AuditKitError
 from redacto_audit_log_kit.factory import adapters_from_env, reader_from_env
 
 
@@ -30,7 +31,7 @@ class AuditClient:
         for adapter in self.adapters:
             try:
                 results.append(adapter.report_event(defined_event_dict))
-            except Exception as e:
+            except AuditKitError as e:
                 errors.append(e)
         if errors:
             for other in errors[1:]:
@@ -41,7 +42,7 @@ class AuditClient:
         return {
             "status": "success",
             "message": "Event reported to every store",
-            "stores": {type(a).__name__: r for a, r in zip(self.adapters, results)},
+            "stores": {a.name: r for a, r in zip(self.adapters, results)},
         }
 
     def define_event(self, audit_log_entry):
@@ -54,8 +55,6 @@ class AuditClient:
         return self.reader.get_page(search_query)
 
     def log(self, audit_log_entry):
-        if len(self.adapters) == 1:
-            return self.adapters[0].log(audit_log_entry)
         return self.report_event(self.define_event(audit_log_entry))
 
     def generate_search_query(self, *args, **kwargs):

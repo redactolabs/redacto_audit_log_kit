@@ -7,6 +7,7 @@ import requests
 from redacto_audit_log_kit.adapter import AuditServerAdapter, GrafanaLokiAdapter
 from redacto_audit_log_kit.factory import adapters_from_env, reader_from_env
 from redacto_audit_log_kit.client import AuditClient
+from redacto_audit_log_kit.core import LokiProtocolAdapter
 from redacto_audit_log_kit.exceptions import (
     AuditKitConfigurationError,
     AuditKitConnectionError,
@@ -68,7 +69,7 @@ class AdapterTestCase(unittest.TestCase):
 
     def patch(self, method, *responses):
         patcher = mock.patch(
-            f"redacto_audit_log_kit.adapter.requests.{method}", side_effect=list(responses)
+            f"redacto_audit_log_kit.core.requests.{method}", side_effect=list(responses)
         )
         mocked = patcher.start()
         self.addCleanup(patcher.stop)
@@ -150,6 +151,14 @@ class TestAuditServerAdapter(AdapterTestCase):
             AuditServerAdapter().report_event(defined_event())
 
         self.assertIn("AUDIT_CLIENTS", str(caught.exception))
+
+
+    def test_a_subclass_missing_its_store_details_fails_at_construction(self):
+        class Incomplete(LokiProtocolAdapter):
+            name = "incomplete"
+
+        with self.assertRaises(TypeError):
+            Incomplete()
 
 
 class TestAdaptersFromEnv(AdapterTestCase):
@@ -234,7 +243,7 @@ class TestDualWriteClient(AdapterTestCase):
         self.assertEqual(result["status"], "success")
         self.assertEqual(
             {name: r["status_code"] for name, r in result["stores"].items()},
-            {"GrafanaLokiAdapter": 204, "AuditServerAdapter": 200},
+            {"loki": 204, "audit_server": 200},
         )
 
     def test_an_audit_server_rejection_raises_for_the_caller_to_retry(self):
@@ -266,6 +275,16 @@ class TestDualWriteClient(AdapterTestCase):
 
         self.assertIn("Loki returned", str(caught.exception))
         self.assertTrue(any("audit-server returned" in n for n in caught.exception.__notes__))
+
+    def test_a_bug_in_an_adapter_is_raised_not_recorded_as_a_store_failure(self):
+        post = self.patch("post", response(204))
+        client = AuditClient()
+
+        with mock.patch.object(client.adapters[0], "report_event", side_effect=TypeError("bug")):
+            with self.assertRaises(TypeError):
+                client.log(an_event())
+
+        post.assert_not_called()
 
     def test_reads_go_to_loki(self):
         get = self.patch("get", response(200))

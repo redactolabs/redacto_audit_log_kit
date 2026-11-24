@@ -28,6 +28,34 @@ MAX_ATTRIBUTE_VALUE_BYTES = 8192
 MAX_ATTRIBUTES_BYTES = 49152
 EVENT_ID_NAMESPACE = uuid.UUID("8b2f9a14-3c7d-4e6b-9a1f-2d3c4e5f6a7b")
 ATTRIBUTE_KEY_PATTERN = re.compile(r"[a-z][a-z0-9_]*")
+LABEL_FIELDS = frozenset(
+    {
+        "organization_uuid",
+        "workspace_uuid",
+        "vrm_vendor_id",
+        "service_name",
+        "kb_id",
+    }
+)
+OPTIONAL_LABEL_FIELDS = frozenset({"log_category"})
+PIPELINE_FILTER_FIELDS = frozenset(
+    {
+        "source_ip",
+        "resource_type",
+        "description",
+        "action",
+        "crud",
+        "actor_name",
+        "actor_uuid",
+        "resource_name",
+        "resource_uuid",
+        "event_id",
+        "actor_type",
+    }
+)
+NON_LOGQL_QUERY_PARAMS = frozenset(
+    {"limit", "start", "end", "since", "interval", "direction"}
+)
 EVENT_ID_PATTERN = re.compile(
     r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
 )

@@ -1,13 +1,14 @@
 import os
 
 from redacto_audit_log_kit.adapter import AuditServerAdapter, GrafanaLokiAdapter
+from redacto_audit_log_kit.constants import (
+    AUDIT_LOG_BACKEND_AUDIT_SERVER,
+    AUDIT_LOG_BACKEND_DUAL,
+    AUDIT_LOG_BACKEND_ENV,
+    AUDIT_LOG_BACKEND_LOKI,
+    AUDIT_LOG_READ_FROM_ENV,
+)
 from redacto_audit_log_kit.exceptions import AuditKitConfigurationError
-
-AUDIT_LOG_BACKEND_ENV = "AUDIT_LOG_BACKEND"
-AUDIT_LOG_BACKEND_LOKI = "loki"
-AUDIT_LOG_BACKEND_DUAL = "dual"
-AUDIT_LOG_BACKEND_AUDIT_SERVER = "audit_server"
-AUDIT_LOG_READ_FROM_ENV = "AUDIT_LOG_READ_FROM"
 
 BACKENDS = {
     AUDIT_LOG_BACKEND_LOKI: (GrafanaLokiAdapter,),

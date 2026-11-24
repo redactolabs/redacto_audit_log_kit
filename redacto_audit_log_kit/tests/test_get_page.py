@@ -75,6 +75,17 @@ class TestGetPage(GetPageTestCase):
         self.assertEqual(page.events[0].message, "line 10")
 
 
+    def test_events_sharing_a_nanosecond_come_back_in_the_same_order_whatever_the_store_order(self):
+        a = stream({"event_signature": "aaa"}, 10)
+        b = stream({"event_signature": "bbb"}, 10)
+
+        first, _ = self.page(GrafanaLokiAdapter(), store_response(a, b))
+        second, _ = self.page(GrafanaLokiAdapter(), store_response(b, a))
+
+        order = [e.metadata["event_signature"] for e in first.events]
+        self.assertEqual(order, [e.metadata["event_signature"] for e in second.events])
+
+
 class TestMetadataDecoding(GetPageTestCase):
     escaped = {"organization_uuid": "o\\\\1", "resource_name": 'a \\"b\\"'}
 
