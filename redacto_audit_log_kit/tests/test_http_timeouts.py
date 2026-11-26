@@ -43,7 +43,7 @@ class TestHttpTimeouts(unittest.TestCase):
 
     def test_push_sends_a_timeout(self):
         with mock.patch(
-            "redacto_audit_log_kit.adapter.requests.post",
+            "redacto_audit_log_kit.core.requests.post",
             return_value=ok_response(204),
         ) as post:
             self.adapter.report_event(defined_event())
@@ -52,7 +52,7 @@ class TestHttpTimeouts(unittest.TestCase):
 
     def test_push_timeout_raises_connection_error_for_the_caller_to_retry(self):
         with mock.patch(
-            "redacto_audit_log_kit.adapter.requests.post",
+            "redacto_audit_log_kit.core.requests.post",
             side_effect=requests.exceptions.ReadTimeout("read timed out"),
         ):
             with self.assertRaises(AuditKitConnectionError):
@@ -60,7 +60,7 @@ class TestHttpTimeouts(unittest.TestCase):
 
     def test_query_sends_a_timeout(self):
         with mock.patch(
-            "redacto_audit_log_kit.adapter.requests.get",
+            "redacto_audit_log_kit.core.requests.get",
             return_value=ok_response(200, {"status": "success"}),
         ) as get:
             self.adapter.get_events(SearchQuery(organization_uuid="org-1"))
@@ -69,10 +69,10 @@ class TestHttpTimeouts(unittest.TestCase):
 
     def test_query_waits_longer_than_a_push(self):
         with mock.patch(
-            "redacto_audit_log_kit.adapter.requests.post",
+            "redacto_audit_log_kit.core.requests.post",
             return_value=ok_response(204),
         ) as post, mock.patch(
-            "redacto_audit_log_kit.adapter.requests.get",
+            "redacto_audit_log_kit.core.requests.get",
             return_value=ok_response(200, {"status": "success"}),
         ) as get:
             self.adapter.report_event(defined_event())
@@ -84,7 +84,7 @@ class TestHttpTimeouts(unittest.TestCase):
     def test_query_does_not_print_the_base_url_credentials(self):
         stdout = io.StringIO()
         with mock.patch(
-            "redacto_audit_log_kit.adapter.requests.get",
+            "redacto_audit_log_kit.core.requests.get",
             return_value=ok_response(200, {"status": "success"}),
         ), contextlib.redirect_stdout(stdout):
             self.adapter.get_events(SearchQuery(organization_uuid="org-1"))

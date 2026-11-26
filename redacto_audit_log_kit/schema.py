@@ -6,11 +6,12 @@ import uuid
 from datetime import datetime
 
 # Model for audit log entry
-from typing import Dict, Any, Literal, Optional
+from typing import Dict, Any, List, Literal, Optional
 from pydantic import BaseModel, Field, field_validator
 
 # Validation constants for Loki query parameters
 MAX_LIMIT = 1000
+DEFAULT_LIMIT = 100
 MIN_LIMIT = 1
 MAX_TIMESTAMP_NS = 2**63 - 1  # int64 max ns, ~2262-04-11 UTC
 MIN_TIMESTAMP_NS = 0
@@ -27,6 +28,34 @@ MAX_ATTRIBUTE_VALUE_BYTES = 8192
 MAX_ATTRIBUTES_BYTES = 49152
 EVENT_ID_NAMESPACE = uuid.UUID("8b2f9a14-3c7d-4e6b-9a1f-2d3c4e5f6a7b")
 ATTRIBUTE_KEY_PATTERN = re.compile(r"[a-z][a-z0-9_]*")
+LABEL_FIELDS = frozenset(
+    {
+        "organization_uuid",
+        "workspace_uuid",
+        "vrm_vendor_id",
+        "service_name",
+        "kb_id",
+    }
+)
+OPTIONAL_LABEL_FIELDS = frozenset({"log_category"})
+PIPELINE_FILTER_FIELDS = frozenset(
+    {
+        "source_ip",
+        "resource_type",
+        "description",
+        "action",
+        "crud",
+        "actor_name",
+        "actor_uuid",
+        "resource_name",
+        "resource_uuid",
+        "event_id",
+        "actor_type",
+    }
+)
+NON_LOGQL_QUERY_PARAMS = frozenset(
+    {"limit", "start", "end", "since", "interval", "direction"}
+)
 EVENT_ID_PATTERN = re.compile(
     r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
 )
@@ -143,18 +172,31 @@ class SearchQuery(BaseModel):
 
     # Loki query_range parameters with validation
     # query: Optional[str] = None
-    limit: Optional[int] = Field(default=100, ge=MIN_LIMIT, le=MAX_LIMIT)
+    limit: Optional[int] = Field(default=DEFAULT_LIMIT, ge=MIN_LIMIT, le=MAX_LIMIT)
     start: Optional[int] = Field(default=None, ge=MIN_TIMESTAMP_NS, le=MAX_TIMESTAMP_NS)
     end: Optional[int] = Field(default=None, ge=MIN_TIMESTAMP_NS, le=MAX_TIMESTAMP_NS)
     since: Optional[str] = None
     interval: Optional[str] = None
     direction: Optional[str] = None
+    page_token: Optional[str] = None
 
     #  group_name: Optional[str] = None # what is this?
 
     # <module>_<field> format for custom fields
     # vrm_vendor_id: Optional[str] = None # label
     # vrm_vendor_domain_name: Optional[str] = None # label
+
+
+class AuditRecord(BaseModel):
+    timestamp: int
+    message: str
+    metadata: Dict[str, str]
+    attributes: Dict[str, str]
+
+
+class AuditPage(BaseModel):
+    events: List[AuditRecord]
+    next_page_token: Optional[str] = None
 
 
 # class AuditLogEntry(BaseModel):

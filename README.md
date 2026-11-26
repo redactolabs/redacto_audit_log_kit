@@ -220,6 +220,67 @@ AuditEvent(
 2. Deploy the version bump on its own. No code change is needed and output is unchanged, unless the service's lock points at a kit commit from before April 2026 (`fb2dba8`, when `kb_id` became a label). Such a service also picks up the `kb_id` label with this bump: every event then carries `kb_id` in its signed labels (`null` when unset), so the same event signs differently before and after the bump. Verify a row against the labels stored with it, not against a fixed label list.
 3. Only after **every** worker that builds `AuditEvent` from a queued payload runs 0.2.0, start setting the new fields. A 0.1.0 worker silently drops unknown keys, so an event sent with the new fields during a mixed rollout would lose its category and attributes.
 
+## 🗄️ Dual write to audit-server
+
+Each store has its own adapter:
+
+| Adapter | Writes and reads | Base URL |
+|---|---|---|
+| `GrafanaLokiAdapter` | Loki | `LOKI_BASE_URL` |
+| `AuditServerAdapter` | audit-server (Loki-compatible API) | `AUDIT_SERVER_BASE_URL`, e.g. `http://<client-id>:<client-secret>@audit-server:8080/audit`; the credentials are the service's audit-server client, sent as HTTP Basic auth |
+
+Build the client without an adapter and `AUDIT_LOG_BACKEND` picks the adapters:
+
+```python
+from redacto_audit_log_kit.client import AuditClient
+
+client = AuditClient()
+```
+
+| `AUDIT_LOG_BACKEND` | Adapters the client calls |
+|---|---|
+| unset or `loki` | `GrafanaLokiAdapter` (as before) |
+| `dual` | `GrafanaLokiAdapter`, then `AuditServerAdapter` |
+| `audit_server` | `AuditServerAdapter` |
+
+An unknown value, or `dual`/`audit_server` without `AUDIT_SERVER_BASE_URL` or without credentials in it, raises `AuditKitConfigurationError` when the client is built, so a bad deploy fails at startup. A trailing `/` on either base URL is ignored.
+
+A rejected request raises `AuditKitExternalServiceError` with `permanent=True` when retrying cannot help (400, 401, 403, 413, 415), and `permanent=False` otherwise (for example 503). A 403 from audit-server means the client's `AUDIT_CLIENTS` entry lacks that `service_name`.
+
+With `dual`:
+
+- The event is defined once, so both stores get the same timestamp and signature.
+- Both stores are written even if one fails, so a Loki outage doesn't stop audit-server writes or the other way round. An event is sent only when both accept it; if either fails, `report_event` raises (naming the store, with any second failure as a note; a retryable failure is raised ahead of a permanent one, so a retry still reaches the store that can take the event) and the caller's retry sends it to both again, and each store drops the repeat.
+- Reads (`get_events`) go to Loki, the only store with the events from before `dual` was switched on, unless `AUDIT_LOG_READ_FROM` says otherwise.
+
+`AUDIT_LOG_READ_FROM` picks the store reads go to:
+
+| `AUDIT_LOG_READ_FROM` | Reads go to |
+|---|---|
+| unset | Loki while it is written, otherwise audit-server |
+| `loki` | Loki |
+| `audit_server` | audit-server |
+
+Naming a store that `AUDIT_LOG_BACKEND` doesn't write, or an unknown value, raises `AuditKitConfigurationError` when the client is built. A client built with an explicit adapter reads from that adapter and ignores both variables.
+
+Moving a service off Loki is then one env change per step, each one reversible:
+
+1. `AUDIT_LOG_BACKEND=dual`: write both, read Loki.
+2. `AUDIT_LOG_READ_FROM=audit_server`: write both, read audit-server. Loki is still written, as a fallback.
+3. `AUDIT_LOG_BACKEND=audit_server`: write and read audit-server only.
+
+### Reading a page
+
+`get_page` returns an `AuditPage` that is the same whichever store is read, so a service needs no change when reads move:
+
+```python
+page = client.get_page(SearchQuery(organization_uuid=org, service_name="consent", limit=10))
+page.events           # AuditRecord(timestamp, message, metadata, attributes), newest first
+page.next_page_token  # pass back as SearchQuery(page_token=...); None on the last page
+```
+
+The token is opaque: pass it back, never parse it. Loki metadata is un-escaped for events from before `LOKI_METADATA_ESCAPED_BEFORE_NS` (all of them when unset), as the services did; audit-server metadata is returned as stored. `get_events` still returns the store's raw JSON.
+
 ## 🏷️ Releasing
 
 Releases are cut by [release-please](https://github.com/googleapis/release-please) (`.github/workflows/release-please.yml`), the same setup as `redacto-llm`:
