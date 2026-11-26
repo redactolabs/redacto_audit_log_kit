@@ -24,7 +24,7 @@ A unified audit logging solution for all Redacto services. This package provides
 ```toml
 [tool.poetry.dependencies]
 # Your other dependencies
-redacto-audit-log-kit = {git = "git@github.com:redactolabs/redacto_audit_log_kit.git", tag = "v0.2.0"}
+redacto-audit-log-kit = {git = "git@github.com:redactolabs/redacto_audit_log_kit.git", tag = "v0.3.0"}
 ```
 <!-- x-release-please-end -->
 
