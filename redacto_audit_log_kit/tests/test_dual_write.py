@@ -276,6 +276,31 @@ class TestDualWriteClient(AdapterTestCase):
         self.assertIn("Loki returned", str(caught.exception))
         self.assertTrue(any("audit-server returned" in n for n in caught.exception.__notes__))
 
+    def test_a_retryable_failure_is_raised_ahead_of_a_permanent_one(self):
+        self.patch("post", response(400, "entry too far behind"), response(503, "unavailable"))
+
+        with self.assertRaises(AuditKitExternalServiceError) as caught:
+            AuditClient().log(an_event())
+
+        self.assertEqual(caught.exception.status_code, 503)
+        self.assertFalse(caught.exception.permanent)
+        self.assertTrue(any("Loki returned" in n for n in caught.exception.__notes__))
+
+    def test_a_timeout_is_raised_ahead_of_a_permanent_failure(self):
+        self.patch("post", response(400, "entry too far behind"), requests.exceptions.ReadTimeout("t"))
+
+        with self.assertRaises(AuditKitConnectionError):
+            AuditClient().log(an_event())
+
+    def test_when_every_failure_is_permanent_a_permanent_one_is_raised(self):
+        self.patch("post", response(400, "entry too far behind"), response(403, "forbidden"))
+
+        with self.assertRaises(AuditKitExternalServiceError) as caught:
+            AuditClient().log(an_event())
+
+        self.assertTrue(caught.exception.permanent)
+        self.assertEqual(caught.exception.status_code, 400)
+
     def test_a_bug_in_an_adapter_is_raised_not_recorded_as_a_store_failure(self):
         post = self.patch("post", response(204))
         client = AuditClient()

@@ -1,7 +1,17 @@
 # TODO: this will be an interface dictating the adapter classes what to do
 from redacto_audit_log_kit.events import define_event, signing_key_from_env
-from redacto_audit_log_kit.exceptions import AuditKitError
+from redacto_audit_log_kit.exceptions import (
+    AuditKitConnectionError,
+    AuditKitError,
+    AuditKitExternalServiceError,
+)
 from redacto_audit_log_kit.factory import adapters_from_env, reader_from_env
+
+
+def is_retryable(error):
+    if isinstance(error, AuditKitConnectionError):
+        return True
+    return isinstance(error, AuditKitExternalServiceError) and not error.permanent
 
 
 class AuditClient:
@@ -11,9 +21,10 @@ class AuditClient:
 
     With more than one (dual write), every store is treated the same: the event is
     defined once, so all of them get the same timestamp and signature, and is sent to
-    each of them even when another fails. If any failed, the first error is raised
-    (with the others as notes), so the caller's retry sends it to all again and each
-    store drops the repeat.
+    each of them even when another fails. If any failed, one error is raised (with
+    the others as notes), so the caller's retry sends it to all again and each store
+    drops the repeat. A retryable error is raised ahead of a permanent one, so a
+    store that can still take the event is not given up on.
 
     With an explicit adapter, both reads and writes go to it.
     """
@@ -34,6 +45,7 @@ class AuditClient:
             except AuditKitError as e:
                 errors.append(e)
         if errors:
+            errors.sort(key=lambda e: not is_retryable(e))
             for other in errors[1:]:
                 errors[0].add_note(f"also failed: {other}")
             raise errors[0]

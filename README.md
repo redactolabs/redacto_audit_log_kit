@@ -250,7 +250,7 @@ A rejected request raises `AuditKitExternalServiceError` with `permanent=True` w
 With `dual`:
 
 - The event is defined once, so both stores get the same timestamp and signature.
-- Both stores are written even if one fails, so a Loki outage doesn't stop audit-server writes or the other way round. An event is sent only when both accept it; if either fails, `report_event` raises (naming the store, with any second failure as a note) and the caller's retry sends it to both again, and each store drops the repeat.
+- Both stores are written even if one fails, so a Loki outage doesn't stop audit-server writes or the other way round. An event is sent only when both accept it; if either fails, `report_event` raises (naming the store, with any second failure as a note; a retryable failure is raised ahead of a permanent one, so a retry still reaches the store that can take the event) and the caller's retry sends it to both again, and each store drops the repeat.
 - Reads (`get_events`) go to Loki, the only store with the events from before `dual` was switched on, unless `AUDIT_LOG_READ_FROM` says otherwise.
 
 `AUDIT_LOG_READ_FROM` picks the store reads go to:
